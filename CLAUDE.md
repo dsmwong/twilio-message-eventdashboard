@@ -61,7 +61,7 @@ There are no tests.
 
 Two env files — `.env` (local dev) and `.env.deploy` (what gets uploaded to Serverless).
 
-- `.env` has `ACCOUNT_SID` + `AUTH_TOKEN` (for local `twilio-run`), `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, and `PUBLIC_BASE_URL` (ngrok tunnel so StatusCallbacks from Twilio cloud can reach localhost).
+- `.env` has `ACCOUNT_SID` + `AUTH_TOKEN` (for local `twilio-run`), `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, and `PUBLIC_BASE_URL` (public tunnel URL so StatusCallbacks from Twilio cloud can reach localhost).
 - `.env.deploy` **must omit** `ACCOUNT_SID`/`AUTH_TOKEN` (Serverless injects them) and `PUBLIC_BASE_URL` (so the deployed function uses `DOMAIN_NAME`).
 
 ## Provisioned Twilio resources (ISVDemo)
@@ -73,7 +73,7 @@ SIDs are recorded in the untracked local `.env` and `.env.deploy`. The rough inv
 - **Deployed Serverless** — service name `twilio-message-eventdashboard`, env `dev`, domain in the deploy output
 - **Event Streams sink + subscription** — webhook sink → `/events-sink`, subscription covers 7 `com.twilio.messaging.*` types
 - **AU regulatory bundle + address** — needed as a pair when buying AU mobile numbers; different approved bundles use different addresses, don't mix
-- **ngrok endpoint** `dawong` → `https://dawong.au.ngrok.io` → port 3000 (Next.js dev). Start with `ngrok start dawong`.
+- **Public tunnel** (e.g. ngrok) pointed at Next.js dev on port 3000 — used as `PUBLIC_BASE_URL` so StatusCallbacks from the Twilio cloud reach the local machine. Next.js dev rewrites `/status-callback`, `/events-sink`, `/incoming-sms`, etc. to `twilio-run` on port 3333.
 
 ## Gotchas learned the hard way
 
