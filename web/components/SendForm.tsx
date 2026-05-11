@@ -11,6 +11,28 @@ const CHANNELS: { value: Channel; label: string }[] = [
 ];
 
 const FREE_FORM = "__free__";
+const RECENT_TO_KEY = "dashboard:recent-to";
+const RECENT_TO_MAX = 10;
+
+function loadRecents(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(RECENT_TO_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecents(list: string[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(RECENT_TO_KEY, JSON.stringify(list));
+  } catch {
+    /* storage disabled / full */
+  }
+}
 
 export function SendForm() {
   const [channel, setChannel] = useState<Channel>("sms");
@@ -23,6 +45,11 @@ export function SendForm() {
   const [vars, setVars] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [recentTo, setRecentTo] = useState<string[]>([]);
+
+  useEffect(() => {
+    setRecentTo(loadRecents());
+  }, []);
 
   useEffect(() => {
     fetch("/templates")
@@ -94,6 +121,12 @@ export function SendForm() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `send ${res.status}`);
       setStatus(`Sent: ${json.sid}`);
+      const trimmed = to.trim();
+      if (trimmed) {
+        const next = [trimmed, ...recentTo.filter((x) => x !== trimmed)].slice(0, RECENT_TO_MAX);
+        setRecentTo(next);
+        saveRecents(next);
+      }
     } catch (e) {
       setStatus(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -126,8 +159,59 @@ export function SendForm() {
           </select>
         </label>
         <label className="stack" style={{ flex: "2 1 200px" }}>
-          <span className="muted">To (E.164)</span>
-          <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="+15551234567" required />
+          <span className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+            <span className="muted">To (E.164)</span>
+            {recentTo.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRecentTo([]);
+                  saveRecents([]);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--muted)",
+                  padding: 0,
+                  fontSize: 11,
+                  fontWeight: 400,
+                  cursor: "pointer",
+                }}
+                title="Clear recent To numbers"
+              >
+                clear recents
+              </button>
+            )}
+          </span>
+          <input
+            list="recent-to-list"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="+15551234567"
+            autoComplete="off"
+            required
+          />
+          <datalist id="recent-to-list">
+            {recentTo.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+          {recentTo.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) setTo(e.target.value);
+              }}
+              style={{ marginTop: 4, fontSize: 12 }}
+            >
+              <option value="">Recent…</option>
+              {recentTo.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          )}
         </label>
       </div>
 
