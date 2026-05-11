@@ -18,6 +18,8 @@ export interface EventRow {
   timestamp: string;
   receivedAt: string;
   payload: Record<string, unknown>;
+  /** Event Streams only: the full CloudEvents envelope as received. */
+  envelope?: Record<string, unknown>;
 }
 
 export interface TemplateSummary {

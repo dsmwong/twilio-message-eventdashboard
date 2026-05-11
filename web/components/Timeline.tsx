@@ -96,6 +96,7 @@ function Column({
                 {new Date(e.timestamp).toISOString()} (+{delta}ms)
               </div>
               <PayloadTable payload={e.payload} />
+              {source === "event-stream" && e.envelope && <EnvelopeJson envelope={e.envelope} />}
             </li>
           );
         })}
@@ -153,6 +154,57 @@ function PayloadTable({ payload }: { payload: Record<string, unknown> }) {
           ))}
         </tbody>
       </table>
+    </details>
+  );
+}
+
+function EnvelopeJson({ envelope }: { envelope: Record<string, unknown> }) {
+  const json = JSON.stringify(envelope, null, 2);
+  const copy = () => {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(json).catch(() => {});
+    }
+  };
+  return (
+    <details style={{ marginTop: 6 }}>
+      <summary className="muted" style={{ fontSize: 12, cursor: "pointer" }}>
+        CloudEvent envelope (full JSON)
+      </summary>
+      <div style={{ position: "relative" }}>
+        <button
+          type="button"
+          onClick={copy}
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            fontSize: 11,
+            padding: "2px 8px",
+            background: "transparent",
+            border: "1px solid var(--border)",
+            color: "var(--muted)",
+            fontWeight: 400,
+          }}
+          title="Copy JSON to clipboard"
+        >
+          copy
+        </button>
+        <pre
+          style={{
+            marginTop: 6,
+            padding: 10,
+            background: "rgba(0,0,0,0.35)",
+            borderRadius: 4,
+            fontSize: 11,
+            lineHeight: 1.45,
+            overflow: "auto",
+            maxHeight: 400,
+            fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+          }}
+        >
+          {json}
+        </pre>
+      </div>
     </details>
   );
 }

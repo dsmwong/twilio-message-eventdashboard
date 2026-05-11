@@ -81,6 +81,7 @@ exports.handler = async function (context, event, callback) {
             timestamp,
             receivedAt: nowIso,
             payload,
+            envelope: env,
           },
         });
       } catch (inner) {
