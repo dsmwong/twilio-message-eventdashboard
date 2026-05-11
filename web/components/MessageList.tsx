@@ -56,7 +56,7 @@ export function MessageList() {
   if (rows.length === 0) return <p className="muted">No messages yet. Send one above.</p>;
 
   return (
-    <table>
+    <table className="msg-table">
       <thead>
         <tr>
           <th>Message SID</th>

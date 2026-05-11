@@ -59,7 +59,7 @@ button:disabled {
 }
 
 .container {
-  max-width: 1200px;
+  max-width: min(1600px, calc(100vw - 32px));
   margin: 0 auto;
   padding: 24px;
 }
@@ -133,6 +133,9 @@ td {
   text-align: left;
   padding: 10px 8px;
   border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 th {
@@ -141,7 +144,29 @@ th {
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
+
+.msg-table {
+  table-layout: fixed;
+}
+
+.msg-table th:nth-child(1),
+.msg-table td:nth-child(1) { width: 22%; }
+.msg-table th:nth-child(2),
+.msg-table td:nth-child(2) { width: 44px; }
+.msg-table th:nth-child(3),
+.msg-table td:nth-child(3) { width: 72px; }
+.msg-table th:nth-child(4),
+.msg-table td:nth-child(4) { width: 18%; }
+.msg-table th:nth-child(5),
+.msg-table td:nth-child(5) { width: 22%; }
+.msg-table th:nth-child(6),
+.msg-table td:nth-child(6) { width: 72px; }
+.msg-table th:nth-child(7),
+.msg-table td:nth-child(7) { width: 92px; }
+.msg-table th:nth-child(8),
+.msg-table td:nth-child(8) { width: 130px; white-space: nowrap; }
 
 .muted {
   color: var(--muted);
