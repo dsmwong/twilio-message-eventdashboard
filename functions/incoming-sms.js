@@ -21,6 +21,7 @@ exports.handler = async function (context, event, callback) {
       const { request, ...payload } = event;
       const channel = inferChannel(event);
 
+      const optOutType = event.OptOutType || undefined;
       await recordEvent(context, {
         messageSid,
         messageMeta: {
@@ -30,6 +31,7 @@ exports.handler = async function (context, event, callback) {
           direction: "in",
           lastStatus: "received",
           lastStatusAt: nowIso,
+          ...(optOutType ? { optOutType } : {}),
         },
         event: {
           source: "status-callback",

@@ -115,6 +115,14 @@ button:disabled {
   border: 1px solid var(--muted);
 }
 
+.badge-optout {
+  background: rgba(255, 99, 99, 0.18);
+  color: #ff7a7a;
+  border: 1px solid #ff7a7a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.03em;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

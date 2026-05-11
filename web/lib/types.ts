@@ -5,6 +5,8 @@ export interface MessageRow {
   from: string;
   channel: Channel;
   direction?: "in" | "out";
+  /** STOP / START / HELP — set by Twilio when the inbound body matches an opt-out/opt-in/help keyword. */
+  optOutType?: string;
   body?: string;
   contentSid?: string;
   createdAt: string;

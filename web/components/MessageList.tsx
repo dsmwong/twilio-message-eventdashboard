@@ -64,6 +64,7 @@ export function MessageList() {
           <th>Channel</th>
           <th>From</th>
           <th>To</th>
+          <th>Opt-out</th>
           <th>Last status</th>
           <th>Last update</th>
         </tr>
@@ -88,6 +89,15 @@ export function MessageList() {
             </td>
             <td>{r.from}</td>
             <td>{r.to}</td>
+            <td>
+              {r.optOutType ? (
+                <span className="badge badge-optout" title={`OptOutType: ${r.optOutType}`}>
+                  {r.optOutType}
+                </span>
+              ) : (
+                <span className="muted">—</span>
+              )}
+            </td>
             <td>{r.lastStatus ?? "—"}</td>
             <td className="muted">
               {r.lastStatusAt || r.createdAt

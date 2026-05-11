@@ -31,6 +31,7 @@ exports.handler = async function (context, event, callback) {
     const rawDirection = (event.Direction || "").toLowerCase();
     const direction = rawDirection.startsWith("inbound") ? "in" : "out";
 
+    const optOutType = event.OptOutType || undefined;
     await recordEvent(context, {
       messageSid,
       messageMeta: {
@@ -38,6 +39,7 @@ exports.handler = async function (context, event, callback) {
         from: event.From,
         channel,
         ...(direction ? { direction } : {}),
+        ...(optOutType ? { optOutType } : {}),
         lastStatus: status,
         lastStatusAt: statusTimestamp,
       },

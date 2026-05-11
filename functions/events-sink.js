@@ -66,6 +66,7 @@ exports.handler = async function (context, event, callback) {
         const channel = extractChannel(env);
         const direction = extractDirection(env);
         const payload = env.payload || env.data || env;
+        const optOutType = payload.optOutType || payload.opt_out_type || payload.OptOutType || undefined;
 
         await recordEvent(context, {
           messageSid,
@@ -74,6 +75,7 @@ exports.handler = async function (context, event, callback) {
             from: payload.from,
             ...(channel ? { channel } : {}),
             ...(direction ? { direction } : {}),
+            ...(optOutType ? { optOutType } : {}),
           },
           event: {
             source: "event-stream",
