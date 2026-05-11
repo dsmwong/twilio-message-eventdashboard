@@ -1,0 +1,10 @@
+{
+  "assets": true,
+  "assetsFolder": "assets",
+  "functions": true,
+  "functionsFolder": "functions",
+  "pkgJson": true,
+  "commands": {},
+  "environments": {},
+  "projects": {}
+}

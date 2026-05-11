@@ -1,0 +1,27 @@
+node_modules/
+.pnpm-store/
+.env
+.env.local
+.env.deploy
+.DS_Store
+
+# Next.js
+web/.next/
+web/out/
+web/next-env.d.ts
+web/tsconfig.tsbuildinfo
+
+# Build output copied into Serverless Assets
+assets/*
+!assets/.gitkeep
+
+# Twilio
+.twiliodeployinfo
+
+# Claude Code
+.claude/settings.local.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
