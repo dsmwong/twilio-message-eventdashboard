@@ -2,11 +2,13 @@
  * POST /send
  * Body: { channel, to, from, body?, contentSid?, contentVariables? }
  * Auth: signed admin cookie (dashboard_session) — viewers cannot send.
- * Allowlist: `to` must be present in the `approved_to` Sync Document.
+ * Allowlists:
+ *   - `to` must be present in the `approved_to` Sync Document.
+ *   - `from` must be present in `approved_senders[channel]`.
  * Calls twilio.messages.create(...) with a statusCallback pointing at this deployment's status-callback URL.
  */
 const { requireAdmin } = require(Runtime.getFunctions()["_shared/auth"].path);
-const { loadApprovedTo } = require(Runtime.getFunctions()["_shared/sync"].path);
+const { loadApprovedTo, loadApprovedSenders } = require(Runtime.getFunctions()["_shared/sync"].path);
 
 function normalize(channel, address) {
   if (!address) return address;
@@ -46,6 +48,14 @@ exports.handler = async function (context, event, callback) {
     if (!approved.has(to)) {
       response.setStatusCode(403);
       response.setBody({ error: "destination not in allowlist" });
+      return callback(null, response);
+    }
+
+    // 3. From must be on the per-channel approved-senders allowlist.
+    const approvedSenders = await loadApprovedSenders(context);
+    if (!approvedSenders[channel] || !approvedSenders[channel].has(from)) {
+      response.setStatusCode(403);
+      response.setBody({ error: "sender not approved for this channel" });
       return callback(null, response);
     }
 

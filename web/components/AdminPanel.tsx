@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AdminInfo } from "../lib/types";
 import { useAuth } from "../lib/auth";
+import { ApprovedDestinationsSection } from "./ApprovedDestinationsSection";
+import { ApprovedSendersSection } from "./ApprovedSendersSection";
 
 type Mode = null | { kind: "add" } | { kind: "rotate"; name: string };
 
@@ -148,6 +150,9 @@ export function AdminPanel({ onClose }: { onClose: () => void }) {
           busy={busy}
         />
       )}
+
+      <ApprovedDestinationsSection />
+      <ApprovedSendersSection />
     </section>
   );
 }

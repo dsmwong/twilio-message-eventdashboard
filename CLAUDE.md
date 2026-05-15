@@ -20,7 +20,7 @@ Twilio Event Streams ──Webhook Sink──────────┘
 ```
 
 ### Functions (`functions/`)
-- `send.js` — `POST /send` — outbound via Content API template (`contentSid` + `contentVariables`) or SMS free-form `body`. **Admin-only** (signed cookie) AND **destination must be in the `approved_to` Sync Document** (returns 403 otherwise). Resolves StatusCallback URL in this order: `PUBLIC_BASE_URL` env → `https://${DOMAIN_NAME}` → omitted (localhost). Required in the send body: `channel`, `to`, `from`. Normalizes addresses *after* the allowlist check (so the allowlist is channel-agnostic). Detects `MG…` from-values and sends via `messagingServiceSid`.
+- `send.js` — `POST /send` — outbound via Content API template (`contentSid` + `contentVariables`) or SMS free-form `body`. **Admin-only** (signed cookie) AND **destination must be in the `approved_to` Sync Document** AND **`from` must be in `approved_senders[channel]`** (each gate returns 403). Resolves StatusCallback URL in this order: `PUBLIC_BASE_URL` env → `https://${DOMAIN_NAME}` → omitted (localhost). Required in the send body: `channel`, `to`, `from`. Normalizes addresses *after* the allowlist check (so the allowlist is channel-agnostic). Detects `MG…` from-values and sends via `messagingServiceSid`.
 - `templates.js` — `GET /templates` — lists Content API templates and computes a `channels` array from the template `types` map.
 - `status-callback.js` — ingests Twilio StatusCallback form-posts. Defaults `direction: "out"` if `Direction` absent (StatusCallbacks fire for outbound).
 - `incoming-sms.js` — handles inbound messages; records them with `direction: "in"` and `eventType: "received"`; responds with empty TwiML.
@@ -28,15 +28,20 @@ Twilio Event Streams ──Webhook Sink──────────┘
 - `sync-token.js` — `POST /sync-token` — mints short-lived Access Token with SyncGrant for the browser client.
 - `admin-login.js` / `admin-logout.js` / `admin-me.js` — session cookie auth (HMAC-signed, HttpOnly, 24h TTL).
 - `admin-list.js` / `admin-create.js` / `admin-remove.js` / `admin-rotate.js` — admin management (admin-only). `admin-remove` blocks self-removal and last-admin-removal.
-- `_shared/sync.js` — `recordEvent`, `loadApprovedTo`, `loadAdmins`, `saveAdmins`. Idempotently ensures the `messages` Sync Map and per-message `events:{MessageSid}` Sync List exist for ingest.
+- `approved-list.js` / `approved-remove.js` — destination allowlist management (admin-only). Reads from + writes to the `approved_to` Sync Document.
+- `verify-start.js` / `verify-confirm.js` — Twilio Verify two-step flow for adding new approved destinations. `verify-start` validates E.164, ensures the value isn't already approved, sends a code via Verify (default channel `sms`, also `call` / `whatsapp`), and stashes a 10-minute `pending_verifications` Sync Map row keyed by value with `{label, channel, requestedBy, requestedAt}`. `verify-confirm` checks the pending row's `requestedBy` matches the calling admin (cross-admin tamper protection), runs `verificationChecks.create`, and only on `status === "approved"` appends the entry to `approved_to` with `verifiedAt` + `verifiedBy`. Wrong code → 400, pending row stays so the admin can retry within TTL.
+- `senders-approved.js` / `senders-approved-set.js` — approved-senders management (admin-only). `senders-approved-set` takes the entire updated array per channel (atomic replace) so the UI's checkbox toggles can't race.
+- `_shared/sync.js` — `recordEvent`, `loadApprovedTo`/`loadApprovedToList`/`saveApprovedTo`, `loadApprovedSenders`/`saveApprovedSenders`, `loadAdmins`/`saveAdmins`, `upsertPendingVerification`/`loadPendingVerification`/`removePendingVerification`. Idempotently ensures the `messages` Sync Map and per-message `events:{MessageSid}` Sync List exist for ingest.
 - `_shared/auth.js` — `signSession`, `verifySession`, `requireAdmin(context, event)`, cookie helpers. Cookie format: `name.expiresAtUnix.hmacSha256(name+expiresAtUnix, SESSION_SECRET)`.
 
 ### Sync data model
 - **Sync Map `messages`** — keyed by `MessageSid`. Fields: `to`, `from`, `channel`, `direction`, `createdAt`, `lastStatus`, `lastStatusAt`, `optOutType?`. Powers the home page message list.
 - **Sync List `events:{MessageSid}`** — one per message. Items: `{source: "status-callback"|"event-stream", eventType, timestamp, receivedAt, payload, envelope?}`. Powers the timeline.
 - **Sync Document `senders`** — runtime config for the From dropdown. Schema: `{sms: Sender[], whatsapp: Sender[], rcs: Sender[]}`. Browser subscribes live; edits via Console / REST / `pnpm run refresh:senders` reach all connected clients with no redeploy.
-- **Sync Document `approved_to`** — destination allowlist. Schema: `{numbers: [{label, value}]}`. The browser dropdown subscribes live; **`send.js` enforces it server-side** (403 on mismatch). Update via `pnpm run refresh:approved` (file source) or Console.
+- **Sync Document `approved_to`** — destination allowlist. Schema: `{numbers: [{label, value, verifiedAt?, verifiedBy?}]}`. The browser dropdown subscribes live; **`send.js` enforces it server-side** (403 on mismatch). New entries are added via the in-dashboard "Add destination" flow which gates on Twilio Verify and writes `verifiedAt`/`verifiedBy`. Bulk seed legacy entries via `pnpm run refresh:approved`.
+- **Sync Document `approved_senders`** — per-channel From allowlist. Schema: `{sms: string[], whatsapp: string[], rcs: string[]}` (raw value strings, e.g. `+61480838905` or `MG…`). The Send form's From dropdown is the intersection of `senders[channel]` and `approved_senders[channel]`; `send.js` enforces it server-side. Managed via the dashboard's "Approved senders" checkbox UI.
 - **Sync Document `approved_admins`** — admin credentials. Schema: `{admins: [{name, passwordHash, createdAt}]}`. bcrypt hash (cost 12), never plaintext. Bootstrap with `pnpm run admin:bootstrap` (refuses if any admin exists); subsequent changes via the in-dashboard Manage admins panel.
+- **Sync Map `pending_verifications`** — short-lived (10 min item TTL) rows keyed by destination value, holding `{label, channel, requestedBy, requestedAt}` for in-flight Verify flows. Cleaned up automatically on success or on Sync TTL expiry.
 
 ### Frontend (`web/`)
 Next.js 15 App Router, static-exported (`output: "export"`) into `/assets/`. In dev, export is disabled and API calls use rewrites to `twilio-run` on :3333 (see `web/next.config.mjs`).
@@ -44,8 +49,11 @@ Next.js 15 App Router, static-exported (`output: "export"`) into `/assets/`. In 
 - `app/m/page.tsx` — timeline detail, **uses `?sid=…` query param** (static export can't prerender dynamic routes without `generateStaticParams`, so we query-param-route instead of `/m/[sid]`)
 - `components/Header.tsx` — title + admin login/logout/manage-admins controls.
 - `components/AdminLoginModal.tsx` — name + password prompt; calls `/admin-login`.
-- `components/AdminPanel.tsx` — table of admins (name + createdAt), add / rotate / remove. Hides hashes always.
-- `components/SendForm.tsx` — subscribes to the `senders` AND `approved_to` Sync Documents. The To field is a `<select>` over the allowlist. Form is wrapped in `<fieldset disabled>` when `useAuth().admin` is null (viewer mode).
+- `components/AdminPanel.tsx` — table of admins (name + createdAt), add / rotate / remove. Hides hashes always. Hosts the `ApprovedDestinationsSection` and `ApprovedSendersSection` subsections.
+- `components/ApprovedDestinationsSection.tsx` — table of `approved_to` entries with a "Add destination" button (opens `AddDestinationModal`) and per-row Remove. Subscribes to the `approved_to` Sync Document for live updates.
+- `components/AddDestinationModal.tsx` — two-step Verify flow: step 1 collects label + E.164 value + channel (sms/call/whatsapp) → POSTs `/verify-start`; step 2 collects the 6-digit code → POSTs `/verify-confirm`. Resend button replays step 1 within the 10-minute TTL.
+- `components/ApprovedSendersSection.tsx` — three channel subsections (SMS / WhatsApp / RCS), each rendering every entry in `senders[channel]` with a checkbox. Toggling immediately POSTs the full updated array to `/senders-approved-set`. Subscribes to both `senders` and `approved_senders` for live state.
+- `components/SendForm.tsx` — subscribes to `senders`, `approved_to`, AND `approved_senders` Sync Documents. To field is a `<select>` over the allowlist. From field is filtered to the intersection of `senders[channel]` and `approved_senders[channel]`. Form is wrapped in `<fieldset disabled>` when viewer, allowlist empty, or no approved senders for the chosen channel.
 - `components/MessageList.tsx` — subscribes to the `messages` Sync Map; sorts by `lastStatusAt ?? createdAt` desc.
 - `components/Timeline.tsx` — subscribes to `events:{sid}` Sync List; two-column layout (StatusCallback | Event Streams) with relative-time deltas and a collapsible param table per event.
 - `lib/sync.ts` — single shared `SyncClient` promise; auto-refreshes token on `tokenAboutToExpire`.
@@ -61,7 +69,8 @@ pnpm run build                   # next build + copy to /assets
 pnpm run deploy                  # build + twilio serverless:deploy --env .env.deploy
 pnpm run refresh:senders         # pull SMS/MS/WA from live API, replace Sync Document
 pnpm run refresh:senders -- --preserve   # merge mode (union by value) — keep manually added entries
-pnpm run refresh:approved        # upsert approved_to Sync Document from data/approved-to.json
+pnpm run refresh:approved        # bulk-seed approved_to from data/approved-to.json (legacy entries, no Verify)
+pnpm run verify:bootstrap        # idempotent: find/create the Twilio Verify Service, print VERIFY_SERVICE_SID
 pnpm run admin:bootstrap         # one-time: seed first admin into approved_admins (refuses if any exist)
 pnpm run session:secret          # generate 32-byte hex SESSION_SECRET
 pnpm --filter web typecheck      # tsc --noEmit
@@ -73,15 +82,16 @@ There are no tests.
 
 Two env files — `.env` (local dev) and `.env.deploy` (what gets uploaded to Serverless).
 
-- `.env` has `ACCOUNT_SID` + `AUTH_TOKEN` (for local `twilio-run`), `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, and `PUBLIC_BASE_URL` (public tunnel URL so StatusCallbacks from Twilio cloud can reach localhost).
-- `.env.deploy` has `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`. **Must omit** `ACCOUNT_SID`/`AUTH_TOKEN` (Serverless injects them) and `PUBLIC_BASE_URL` (so the deployed function uses `DOMAIN_NAME`).
+- `.env` has `ACCOUNT_SID` + `AUTH_TOKEN` (for local `twilio-run`), `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, `VERIFY_SERVICE_SID`, and `PUBLIC_BASE_URL` (public tunnel URL so StatusCallbacks from Twilio cloud can reach localhost).
+- `.env.deploy` has `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, `VERIFY_SERVICE_SID`. **Must omit** `ACCOUNT_SID`/`AUTH_TOKEN` (Serverless injects them) and `PUBLIC_BASE_URL` (so the deployed function uses `DOMAIN_NAME`).
 - `SESSION_SECRET` rotation invalidates every active admin session. Generate with `pnpm run session:secret` and paste into both `.env` and `.env.deploy`.
 
 ## Provisioned Twilio resources (ISVDemo)
 
 SIDs are recorded in the untracked local `.env` and `.env.deploy`. The rough inventory (see `.env`/Console for the actual values — not committed for security scanners):
 
-- **Sync Service** (`SYNC_SERVICE_SID` in `.env`) with Document `senders`, Map `messages`, per-message Lists `events:{MessageSid}`
+- **Sync Service** (`SYNC_SERVICE_SID` in `.env`) with Documents `senders`, `approved_to`, `approved_senders`, `approved_admins`; Maps `messages` and `pending_verifications`; per-message Lists `events:{MessageSid}`
+- **Verify Service** (`VERIFY_SERVICE_SID` in `.env`) FriendlyName `message-event-dashboard` — used by `/verify-start` and `/verify-confirm` to gate new approved destinations
 - **Project API Key** FriendlyName `message-event-dashboard` — used for Access Tokens (`TWILIO_API_KEY` / `TWILIO_API_SECRET` in `.env`)
 - **Deployed Serverless** — service name `twilio-message-eventdashboard`, env `dev`, domain in the deploy output
 - **Event Streams sink + subscription** — webhook sink → `/events-sink`, subscription covers 7 `com.twilio.messaging.*` types

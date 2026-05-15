@@ -22,6 +22,10 @@ const nextConfig = {
       { source: "/events-sink", destination: `${target}/events-sink` },
       { source: "/incoming-sms", destination: `${target}/incoming-sms` },
       { source: "/admin-:path", destination: `${target}/admin-:path` },
+      { source: "/approved-:path", destination: `${target}/approved-:path` },
+      { source: "/verify-:path", destination: `${target}/verify-:path` },
+      { source: "/senders-approved", destination: `${target}/senders-approved` },
+      { source: "/senders-approved-set", destination: `${target}/senders-approved-set` },
     ];
   },
 };

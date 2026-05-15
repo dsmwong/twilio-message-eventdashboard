@@ -14,6 +14,7 @@
     "refresh:approved": "node scripts/refresh-approved-to.mjs",
     "backfill:optout": "node scripts/backfill-optout.mjs",
     "admin:bootstrap": "node scripts/admin-bootstrap.mjs",
+    "verify:bootstrap": "node scripts/verify-bootstrap.mjs",
     "session:secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
   },
   "devDependencies": {

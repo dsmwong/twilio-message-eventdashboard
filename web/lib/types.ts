@@ -48,10 +48,20 @@ export interface SendersConfig {
 export interface ApprovedNumber {
   label: string;
   value: string;
+  /** ISO timestamp of the Twilio Verify confirmation. Absent on legacy entries. */
+  verifiedAt?: string;
+  /** Name of the admin who completed verification. */
+  verifiedBy?: string;
 }
 
 export interface ApprovedToConfig {
   numbers: ApprovedNumber[];
+}
+
+export interface ApprovedSendersConfig {
+  sms: string[];
+  whatsapp: string[];
+  rcs: string[];
 }
 
 export interface AdminInfo {

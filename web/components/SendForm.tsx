@@ -3,7 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { getSyncClient } from "../lib/sync";
-import type { ApprovedNumber, ApprovedToConfig, Channel, Sender, SendersConfig, TemplateSummary } from "../lib/types";
+import type {
+  ApprovedNumber,
+  ApprovedSendersConfig,
+  ApprovedToConfig,
+  Channel,
+  Sender,
+  SendersConfig,
+  TemplateSummary,
+} from "../lib/types";
 
 const CHANNELS: { value: Channel; label: string }[] = [
   { value: "sms", label: "SMS" },
@@ -17,6 +25,7 @@ export function SendForm() {
   const { admin, loading: authLoading } = useAuth();
   const [channel, setChannel] = useState<Channel>("sms");
   const [senders, setSenders] = useState<SendersConfig | null>(null);
+  const [approvedSenders, setApprovedSenders] = useState<ApprovedSendersConfig | null>(null);
   const [approved, setApproved] = useState<ApprovedNumber[] | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[] | null>(null);
   const [from, setFrom] = useState("");
@@ -59,6 +68,36 @@ export function SendForm() {
     };
   }, []);
 
+  // Approved-Senders Sync Document subscription.
+  useEffect(() => {
+    let doc: Awaited<ReturnType<Awaited<ReturnType<typeof getSyncClient>>["document"]>> | null = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const client = await getSyncClient();
+        doc = await client.document("approved_senders");
+        if (cancelled) return;
+        const apply = (d: unknown) => {
+          const cfg = (d as Partial<ApprovedSendersConfig>) || {};
+          setApprovedSenders({
+            sms: Array.isArray(cfg.sms) ? cfg.sms : [],
+            whatsapp: Array.isArray(cfg.whatsapp) ? cfg.whatsapp : [],
+            rcs: Array.isArray(cfg.rcs) ? cfg.rcs : [],
+          });
+        };
+        apply(doc.data);
+        doc.on("updated", ({ data }) => apply(data));
+      } catch (e) {
+        // Treat missing document as "nothing approved".
+        setApprovedSenders({ sms: [], whatsapp: [], rcs: [] });
+      }
+    })();
+    return () => {
+      cancelled = true;
+      doc?.close();
+    };
+  }, []);
+
   // Approved-To Sync Document subscription.
   useEffect(() => {
     let doc: Awaited<ReturnType<Awaited<ReturnType<typeof getSyncClient>>["document"]>> | null = null;
@@ -93,7 +132,12 @@ export function SendForm() {
     };
   }, [admin]);
 
-  const channelSenders: Sender[] = useMemo(() => (senders ? senders[channel] ?? [] : []), [senders, channel]);
+  const channelSenders: Sender[] = useMemo(() => {
+    const all = senders ? senders[channel] ?? [] : [];
+    if (!approvedSenders) return all; // not yet loaded — don't strip
+    const set = new Set(approvedSenders[channel] ?? []);
+    return all.filter((s) => set.has(s.value));
+  }, [senders, approvedSenders, channel]);
 
   const channelTemplates = useMemo(
     () => (templates ?? []).filter((t) => t.channels.includes(channel)),
@@ -120,6 +164,8 @@ export function SendForm() {
   const selectedTemplate = channelTemplates.find((t) => t.sid === templateSid);
   const isViewer = !authLoading && !admin;
   const allowlistEmpty = approved !== null && approved.length === 0;
+  const noApprovedSendersForChannel =
+    approvedSenders !== null && (approvedSenders[channel]?.length ?? 0) === 0;
 
   async function submit(ev: React.FormEvent) {
     ev.preventDefault();
@@ -157,12 +203,22 @@ export function SendForm() {
       )}
       {admin && allowlistEmpty && (
         <p style={{ color: "tomato", margin: 0, fontSize: 12 }}>
-          The approved destinations list is empty. Run <code>pnpm run refresh:approved</code> to seed it before sending.
+          The approved destinations list is empty. Add one in <strong>Manage admins → Approved destinations</strong>.
+        </p>
+      )}
+      {admin && !allowlistEmpty && noApprovedSendersForChannel && (
+        <p style={{ color: "tomato", margin: 0, fontSize: 12 }}>
+          No approved senders for {channel}. Tick one in <strong>Manage admins → Approved senders</strong>.
         </p>
       )}
       <fieldset
-        disabled={isViewer || allowlistEmpty}
-        style={{ border: "none", padding: 0, margin: 0, opacity: isViewer || allowlistEmpty ? 0.55 : 1 }}
+        disabled={isViewer || allowlistEmpty || noApprovedSendersForChannel}
+        style={{
+          border: "none",
+          padding: 0,
+          margin: 0,
+          opacity: isViewer || allowlistEmpty || noApprovedSendersForChannel ? 0.55 : 1,
+        }}
       >
         <div className="stack">
           <div className="row">

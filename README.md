@@ -14,13 +14,16 @@ Twilio Event Streams ──Webhook Sink──────────┘
 ```
 
 Functions:
-- `POST /send` — sends SMS / WhatsApp / RCS via the Content API (or SMS free-form). **Admin-only**, **destination must be on the allowlist**.
+- `POST /send` — sends SMS / WhatsApp / RCS via the Content API (or SMS free-form). **Admin-only**, **destination must be on the allowlist**, **From must be on the per-channel approved-senders list**.
 - `GET /templates` — lists Content API templates available on this account.
 - `POST /sync-token` — mints Access Tokens for the browser Sync client.
 - `POST /status-callback` — receives per-message status webhooks.
 - `POST /events-sink` — receives batched Event Streams events.
 - `POST /admin-login` / `POST /admin-logout` / `GET /admin-me` — session cookie auth for admins.
 - `GET /admin-list` / `POST /admin-create` / `POST /admin-remove` / `POST /admin-rotate` — admin management (admin-only).
+- `GET /approved-list` / `POST /approved-remove` — destination allowlist management (admin-only).
+- `POST /verify-start` / `POST /verify-confirm` — Twilio Verify two-step flow for adding new approved destinations (admin-only).
+- `GET /senders-approved` / `POST /senders-approved-set` — per-channel approved-senders management (admin-only).
 
 Frontend:
 - `/` — send form + live message list.
@@ -79,22 +82,52 @@ Schema:
 ```json
 {
   "numbers": [
-    { "label": "My phone", "value": "+61417000000" },
-    { "label": "Customer ACME (CTO)", "value": "+15551234567" }
+    {
+      "label": "My phone",
+      "value": "+61417000000",
+      "verifiedAt": "2026-05-15T03:30:00Z",
+      "verifiedBy": "dawong"
+    }
   ]
 }
 ```
 
-Seed / refresh:
+**Recommended path — add via the dashboard UI** (admin → Manage admins → Approved destinations → Add destination):
+the dashboard sends a Twilio Verify code to the prospective number. Only after the code is confirmed is the entry written to `approved_to`, with `verifiedAt` and `verifiedBy` set automatically. This proves the admin controls the destination before any traffic is allowed to it.
+
+This requires a Verify Service:
+
+```sh
+pnpm run verify:bootstrap                       # creates / finds the Verify service
+# paste VERIFY_SERVICE_SID into .env and .env.deploy
+pnpm run deploy
+```
+
+**Bulk seed (legacy)** — optional, for migrating existing lists or pre-populating in dev. Entries written this way have no `verifiedAt` and show as "legacy" in the admin UI; they still work for sending but lack the verification provenance.
 
 ```sh
 cp data/approved-to.example.json data/approved-to.json   # gitignored
 # edit data/approved-to.json
 pnpm run refresh:approved                                # default file: data/approved-to.json
-pnpm run refresh:approved path/to/other.json             # alt file
 ```
 
 Manual edits: Twilio Console → Sync → Documents → `approved_to`. Connected browsers update instantly.
+
+### Approved senders (per-channel From restriction)
+
+The Send form's From dropdown is the **intersection** of the `senders` catalogue (everything the account has) and the **`approved_senders`** Sync Document (the admin-curated subset). `functions/send.js` rejects any `from` not in the appropriate channel's array with HTTP 403.
+
+Schema:
+
+```json
+{
+  "sms": ["+61480838905", "MG50456b819124898a66a83ebee673125f"],
+  "whatsapp": ["+14155238886"],
+  "rcs": []
+}
+```
+
+Manage in the dashboard (admin → Manage admins → Approved senders): each channel shows every entry in `senders[channel]` with a checkbox. Toggling a checkbox immediately rewrites that channel's array. Empty array for a channel means "no sends from that channel" until something is approved.
 
 ### Roles & access
 
