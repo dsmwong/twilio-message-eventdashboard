@@ -1,4 +1,10 @@
+/**
+ * POST /status-callback
+ * Twilio posts per-message delivery status updates here.
+ * Twilio request signature is required — unsigned/invalid requests get 403.
+ */
 const { recordEvent } = require(Runtime.getFunctions()["_shared/sync"].path);
+const { requireTwilioSignature } = require(Runtime.getFunctions()["_shared/webhook-auth"].path);
 
 function inferChannel(messageSid, params) {
   const to = params.To || "";
@@ -14,6 +20,9 @@ exports.handler = async function (context, event, callback) {
   response.appendHeader("Content-Type", "text/plain");
 
   try {
+    // Reject unsigned / forged requests.
+    requireTwilioSignature(context, event, "/status-callback");
+
     const messageSid = event.MessageSid || event.SmsSid;
     if (!messageSid) {
       response.setStatusCode(400);
@@ -57,7 +66,7 @@ exports.handler = async function (context, event, callback) {
     return callback(null, response);
   } catch (err) {
     console.error("[status-callback] error", err);
-    response.setStatusCode(500);
+    response.setStatusCode(err.status || 500);
     response.setBody(String(err.message || err));
     return callback(null, response);
   }

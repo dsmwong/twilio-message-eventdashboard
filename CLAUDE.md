@@ -22,26 +22,38 @@ Twilio Event Streams ──Webhook Sink──────────┘
 ### Functions (`functions/`)
 - `send.js` — `POST /send` — outbound via Content API template (`contentSid` + `contentVariables`) or SMS free-form `body`. **Admin-only** (signed cookie) AND **destination must be in the `approved_to` Sync Document** AND **`from` must be in `approved_senders[channel]`** (each gate returns 403). Resolves StatusCallback URL in this order: `PUBLIC_BASE_URL` env → `https://${DOMAIN_NAME}` → omitted (localhost). Required in the send body: `channel`, `to`, `from`. Normalizes addresses *after* the allowlist check (so the allowlist is channel-agnostic). Detects `MG…` from-values and sends via `messagingServiceSid`.
 - `templates.js` — `GET /templates` — lists Content API templates and computes a `channels` array from the template `types` map.
-- `status-callback.js` — ingests Twilio StatusCallback form-posts. Defaults `direction: "out"` if `Direction` absent (StatusCallbacks fire for outbound).
-- `incoming-sms.js` — handles inbound messages; records them with `direction: "in"` and `eventType: "received"`; responds with empty TwiML.
-- `events-sink.js` — handles batched Event Streams CloudEvents envelopes.
-- `sync-token.js` — `POST /sync-token` — mints short-lived Access Token with SyncGrant for the browser client.
+- `status-callback.js` — ingests Twilio StatusCallback form-posts. **Twilio request signature required** via `requireTwilioSignature` (403 on mismatch). Defaults `direction: "out"` if `Direction` absent (StatusCallbacks fire for outbound).
+- `incoming-sms.js` — handles inbound messages. **Twilio request signature required**. Records them with `direction: "in"` and `eventType: "received"`; responds with empty TwiML.
+- `events-sink.js` — handles batched Event Streams CloudEvents envelopes. **Keying**: classic messaging events go in by `MessageSid`; `com.twilio.comms-api.*` events go in by `operation_id` (so message-stage and operation-stage events for the same logical send share one row + timeline). Comms API rows have `channel: "comms"`. Comms API `to`/`from` arrive as `{address, channel}` objects and are flattened to strings before write.
+- `sync-token.js` — `POST /sync-token` — mints a short-lived Access Token with a SyncGrant for the **public** Sync service only. Returns admin-scope (1h, identity `admin-<name>-<uuid>`) when the admin cookie is present, viewer-scope (30m, identity `viewer-<uuid>`) otherwise. Identity is server-generated; the request body cannot influence it.
 - `admin-login.js` / `admin-logout.js` / `admin-me.js` — session cookie auth (HMAC-signed, HttpOnly, 24h TTL).
 - `admin-list.js` / `admin-create.js` / `admin-remove.js` / `admin-rotate.js` — admin management (admin-only). `admin-remove` blocks self-removal and last-admin-removal.
 - `approved-list.js` / `approved-remove.js` — destination allowlist management (admin-only). Reads from + writes to the `approved_to` Sync Document.
 - `verify-start.js` / `verify-confirm.js` — Twilio Verify two-step flow for adding new approved destinations. `verify-start` validates E.164, ensures the value isn't already approved, sends a code via Verify (default channel `sms`, also `call` / `whatsapp`), and stashes a 10-minute `pending_verifications` Sync Map row keyed by value with `{label, channel, requestedBy, requestedAt}`. `verify-confirm` checks the pending row's `requestedBy` matches the calling admin (cross-admin tamper protection), runs `verificationChecks.create`, and only on `status === "approved"` appends the entry to `approved_to` with `verifiedAt` + `verifiedBy`. Wrong code → 400, pending row stays so the admin can retry within TTL.
 - `senders-approved.js` / `senders-approved-set.js` — approved-senders management (admin-only). `senders-approved-set` takes the entire updated array per channel (atomic replace) so the UI's checkbox toggles can't race.
-- `_shared/sync.js` — `recordEvent`, `loadApprovedTo`/`loadApprovedToList`/`saveApprovedTo`, `loadApprovedSenders`/`saveApprovedSenders`, `loadAdmins`/`saveAdmins`, `upsertPendingVerification`/`loadPendingVerification`/`removePendingVerification`. Idempotently ensures the `messages` Sync Map and per-message `events:{MessageSid}` Sync List exist for ingest.
-- `_shared/auth.js` — `signSession`, `verifySession`, `requireAdmin(context, event)`, cookie helpers. Cookie format: `name.expiresAtUnix.hmacSha256(name+expiresAtUnix, SESSION_SECRET)`.
+- `_shared/sync.js` — `recordEvent`, `loadApprovedTo`/`loadApprovedToList`/`saveApprovedTo`, `loadApprovedSenders`/`saveApprovedSenders` (all → public service); `loadAdmins`/`saveAdmins`, `upsertPendingVerification`/`loadPendingVerification`/`removePendingVerification` (all → **private** service via `syncPrivateService(context)`). Idempotently ensures the `messages` Sync Map and per-message `events:{MessageSid}` Sync List exist for ingest.
+- `_shared/auth.js` — `signSession`, `verifySession`, `currentAdmin`, `requireAdmin(context, event)`, cookie helpers. Cookie format: `name.expiresAtUnix.hmacSha256(name+expiresAtUnix, SESSION_SECRET)`.
+- `_shared/webhook-auth.js` — `requireTwilioSignature(context, event, path)`. Computes the URL via `PUBLIC_BASE_URL` → `https://${DOMAIN_NAME}`, reads `event.request.headers['x-twilio-signature']`, validates with `Twilio.validateRequest`. Throws `.status = 403` on mismatch. `SKIP_TWILIO_SIGNATURE=true` env opt-out for offline testing only.
+
+### Sync architecture (two services)
+
+Two separate Sync services, by design:
+
+- **Public** (`SYNC_SERVICE_SID`) — browser receives a Sync grant via `/sync-token`. Holds messaging activity (`messages` Map, per-message `events:*` Lists) and viewer-safe config (`senders`, `approved_to`, `approved_senders`).
+- **Private** (`SYNC_PRIVATE_SERVICE_SID`) — browser **never** gets a token for this. Holds admin/credential state: `approved_admins` (bcrypt hashes), `pending_verifications` Map. Only the function-side API key reads it.
+
+`/sync-token` issues a viewer-scope token (`viewer-<uuid>`, 30m TTL) when there's no admin cookie, and an admin-scope token (`admin-<name>-<uuid>`, 1h TTL) when there is. Both grants reach the public service only — so an open-internet token is structurally safe (no credentials live there).
+
+Migrate from a single-service setup with `pnpm run sync:split` (idempotent: copies admin docs to private, deletes from public).
 
 ### Sync data model
-- **Sync Map `messages`** — keyed by `MessageSid`. Fields: `to`, `from`, `channel`, `direction`, `createdAt`, `lastStatus`, `lastStatusAt`, `optOutType?`. Powers the home page message list.
-- **Sync List `events:{MessageSid}`** — one per message. Items: `{source: "status-callback"|"event-stream", eventType, timestamp, receivedAt, payload, envelope?}`. Powers the timeline.
+- **Sync Map `messages`** — keyed by either a Twilio `MessageSid` (for messaging webhooks + classic Event Streams events) **or** a Comms API `operation_id` (for `com.twilio.comms-api.*` events — channel set to `"comms"`). Fields: `to`, `from`, `channel`, `direction`, `createdAt`, `lastStatus`, `lastStatusAt`, `optOutType?`. Powers the home page message list.
+- **Sync List `events:{key}`** — one per Map row, where `{key}` is whatever the row is keyed by (MessageSid or operation_id). Items: `{source: "status-callback"|"event-stream", eventType, timestamp, receivedAt, payload, envelope?}`. Powers the timeline.
 - **Sync Document `senders`** — runtime config for the From dropdown. Schema: `{sms: Sender[], whatsapp: Sender[], rcs: Sender[]}`. Browser subscribes live; edits via Console / REST / `pnpm run refresh:senders` reach all connected clients with no redeploy.
 - **Sync Document `approved_to`** — destination allowlist. Schema: `{numbers: [{label, value, verifiedAt?, verifiedBy?}]}`. The browser dropdown subscribes live; **`send.js` enforces it server-side** (403 on mismatch). New entries are added via the in-dashboard "Add destination" flow which gates on Twilio Verify and writes `verifiedAt`/`verifiedBy`. Bulk seed legacy entries via `pnpm run refresh:approved`.
 - **Sync Document `approved_senders`** — per-channel From allowlist. Schema: `{sms: string[], whatsapp: string[], rcs: string[]}` (raw value strings, e.g. `+61480838905` or `MG…`). The Send form's From dropdown is the intersection of `senders[channel]` and `approved_senders[channel]`; `send.js` enforces it server-side. Managed via the dashboard's "Approved senders" checkbox UI.
-- **Sync Document `approved_admins`** — admin credentials. Schema: `{admins: [{name, passwordHash, createdAt}]}`. bcrypt hash (cost 12), never plaintext. Bootstrap with `pnpm run admin:bootstrap` (refuses if any admin exists); subsequent changes via the in-dashboard Manage admins panel.
-- **Sync Map `pending_verifications`** — short-lived (10 min item TTL) rows keyed by destination value, holding `{label, channel, requestedBy, requestedAt}` for in-flight Verify flows. Cleaned up automatically on success or on Sync TTL expiry.
+- **Sync Document `approved_admins`** *(PRIVATE service)* — admin credentials. Schema: `{admins: [{name, passwordHash, createdAt}]}`. bcrypt hash (cost 12), never plaintext. Bootstrap with `pnpm run admin:bootstrap` (refuses if any admin exists); subsequent changes via the in-dashboard Manage admins panel.
+- **Sync Map `pending_verifications`** *(PRIVATE service)* — short-lived (10 min item TTL) rows keyed by destination value, holding `{label, channel, requestedBy, requestedAt}` for in-flight Verify flows. Cleaned up automatically on success or on Sync TTL expiry.
 
 ### Frontend (`web/`)
 Next.js 15 App Router, static-exported (`output: "export"`) into `/assets/`. In dev, export is disabled and API calls use rewrites to `twilio-run` on :3333 (see `web/next.config.mjs`).
@@ -71,6 +83,7 @@ pnpm run refresh:senders         # pull SMS/MS/WA from live API, replace Sync Do
 pnpm run refresh:senders -- --preserve   # merge mode (union by value) — keep manually added entries
 pnpm run refresh:approved        # bulk-seed approved_to from data/approved-to.json (legacy entries, no Verify)
 pnpm run verify:bootstrap        # idempotent: find/create the Twilio Verify Service, print VERIFY_SERVICE_SID
+pnpm run sync:split              # one-time: provision the private Sync service + migrate admin/pending docs out of the public one
 pnpm run admin:bootstrap         # one-time: seed first admin into approved_admins (refuses if any exist)
 pnpm run session:secret          # generate 32-byte hex SESSION_SECRET
 pnpm --filter web typecheck      # tsc --noEmit
@@ -82,15 +95,17 @@ There are no tests.
 
 Two env files — `.env` (local dev) and `.env.deploy` (what gets uploaded to Serverless).
 
-- `.env` has `ACCOUNT_SID` + `AUTH_TOKEN` (for local `twilio-run`), `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, `VERIFY_SERVICE_SID`, and `PUBLIC_BASE_URL` (public tunnel URL so StatusCallbacks from Twilio cloud can reach localhost).
-- `.env.deploy` has `SYNC_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, `VERIFY_SERVICE_SID`. **Must omit** `ACCOUNT_SID`/`AUTH_TOKEN` (Serverless injects them) and `PUBLIC_BASE_URL` (so the deployed function uses `DOMAIN_NAME`).
+- `.env` has `ACCOUNT_SID` + `AUTH_TOKEN` (for local `twilio-run`), `SYNC_SERVICE_SID`, `SYNC_PRIVATE_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, `VERIFY_SERVICE_SID`, and `PUBLIC_BASE_URL` (public tunnel URL so StatusCallbacks from Twilio cloud can reach localhost).
+- `.env.deploy` has `SYNC_SERVICE_SID`, `SYNC_PRIVATE_SERVICE_SID`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `SESSION_SECRET`, `VERIFY_SERVICE_SID`. **Must omit** `ACCOUNT_SID`/`AUTH_TOKEN` (Serverless injects them) and `PUBLIC_BASE_URL` (so the deployed function uses `DOMAIN_NAME`).
+- The webhook signature check (`requireTwilioSignature`) reads `AUTH_TOKEN` from context — locally that comes from `.env`, in production it's auto-injected by the Serverless runtime.
 - `SESSION_SECRET` rotation invalidates every active admin session. Generate with `pnpm run session:secret` and paste into both `.env` and `.env.deploy`.
 
 ## Provisioned Twilio resources (ISVDemo)
 
 SIDs are recorded in the untracked local `.env` and `.env.deploy`. The rough inventory (see `.env`/Console for the actual values — not committed for security scanners):
 
-- **Sync Service** (`SYNC_SERVICE_SID` in `.env`) with Documents `senders`, `approved_to`, `approved_senders`, `approved_admins`; Maps `messages` and `pending_verifications`; per-message Lists `events:{MessageSid}`
+- **Public Sync Service** (`SYNC_SERVICE_SID` in `.env`) with Documents `senders`, `approved_to`, `approved_senders`; Map `messages`; per-message Lists `events:{MessageSid}`. The browser gets a Sync grant for this one.
+- **Private Sync Service** (`SYNC_PRIVATE_SERVICE_SID` in `.env`) FriendlyName `message-event-dashboard-private` with Document `approved_admins` and Map `pending_verifications`. Browser never gets a grant — function-side only.
 - **Verify Service** (`VERIFY_SERVICE_SID` in `.env`) FriendlyName `message-event-dashboard` — used by `/verify-start` and `/verify-confirm` to gate new approved destinations
 - **Project API Key** FriendlyName `message-event-dashboard` — used for Access Tokens (`TWILIO_API_KEY` / `TWILIO_API_SECRET` in `.env`)
 - **Deployed Serverless** — service name `twilio-message-eventdashboard`, env `dev`, domain in the deploy output

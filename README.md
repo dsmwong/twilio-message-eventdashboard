@@ -16,9 +16,10 @@ Twilio Event Streams ──Webhook Sink──────────┘
 Functions:
 - `POST /send` — sends SMS / WhatsApp / RCS via the Content API (or SMS free-form). **Admin-only**, **destination must be on the allowlist**, **From must be on the per-channel approved-senders list**.
 - `GET /templates` — lists Content API templates available on this account.
-- `POST /sync-token` — mints Access Tokens for the browser Sync client.
-- `POST /status-callback` — receives per-message status webhooks.
-- `POST /events-sink` — receives batched Event Streams events.
+- `POST /sync-token` — mints Access Tokens for the browser Sync client. Returns viewer-scope (30m) by default, admin-scope (1h) when an admin cookie is present. Both grants reach only the **public** Sync service (no credentials there).
+- `POST /status-callback` — receives per-message status webhooks. **Twilio request signature required** (403 on mismatch).
+- `POST /incoming-sms` — receives inbound SMS/MMS. **Twilio request signature required** (403 on mismatch).
+- `POST /events-sink` — receives batched Event Streams events. Classic messaging events are keyed by `MessageSid`; `com.twilio.comms-api.*` events are keyed by `operation_id` and tagged with `channel: "comms"` so all events (message-stage + operation-stage) for one send group together.
 - `POST /admin-login` / `POST /admin-logout` / `GET /admin-me` — session cookie auth for admins.
 - `GET /admin-list` / `POST /admin-create` / `POST /admin-remove` / `POST /admin-rotate` — admin management (admin-only).
 - `GET /approved-list` / `POST /approved-remove` — destination allowlist management (admin-only).
@@ -128,6 +129,23 @@ Schema:
 ```
 
 Manage in the dashboard (admin → Manage admins → Approved senders): each channel shows every entry in `senders[channel]` with a checkbox. Toggling a checkbox immediately rewrites that channel's array. Empty array for a channel means "no sends from that channel" until something is approved.
+
+### Sync architecture (two services)
+
+The dashboard uses **two separate Sync services** — a hard split between public messaging activity and private credentials.
+
+| Service | Browser grant | Contents |
+|---|---|---|
+| Public (`SYNC_SERVICE_SID`) | yes (via `/sync-token`) | `messages`, `events:*`, `senders`, `approved_to`, `approved_senders` |
+| Private (`SYNC_PRIVATE_SERVICE_SID`) | **never** | `approved_admins` (bcrypt hashes), `pending_verifications` |
+
+This means an open-internet `/sync-token` call only ever yields a token for the public service — there's no credential data on the other end. Provision/migrate with:
+
+```sh
+pnpm run sync:split    # idempotent: provisions the private service, copies admin docs in, deletes from public
+# paste SYNC_PRIVATE_SERVICE_SID into .env and .env.deploy
+pnpm run deploy
+```
 
 ### Roles & access
 

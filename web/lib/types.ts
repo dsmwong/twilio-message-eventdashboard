@@ -1,9 +1,17 @@
+/** Channels the SendForm can target. */
 export type Channel = "sms" | "whatsapp" | "rcs";
+
+/**
+ * Channel value stored on a MessageRow. Includes "comms" for rows that came
+ * in via the Comms API event-stream pipeline (which we don't send through
+ * from the dashboard, only observe).
+ */
+export type MessageChannel = Channel | "comms";
 
 export interface MessageRow {
   to: string;
   from: string;
-  channel: Channel;
+  channel: MessageChannel;
   direction?: "in" | "out";
   /** STOP / START / HELP — set by Twilio when the inbound body matches an opt-out/opt-in/help keyword. */
   optOutType?: string;

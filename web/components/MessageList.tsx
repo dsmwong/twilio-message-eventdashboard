@@ -7,6 +7,24 @@ import type { MessageRow } from "../lib/types";
 
 type Row = MessageRow & { sid: string };
 
+// Defensive: some payloads (e.g. Comms API) deliver `to`/`from` as objects
+// like `{address, channel}`. We flatten on ingest, but stale rows in Sync
+// might still have objects — render them as strings to avoid React error #31.
+function asText(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object" && "address" in (v as object)) {
+    const a = (v as { address?: unknown }).address;
+    if (typeof a === "string") return a;
+  }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
 export function MessageList() {
   const [rows, setRows] = useState<Row[]>([]);
   const [err, setErr] = useState<string | null>(null);
@@ -73,7 +91,7 @@ export function MessageList() {
         {rows.map((r) => (
           <tr key={r.sid}>
             <td>
-              <Link href={`/m/?sid=${encodeURIComponent(r.sid)}`}>{r.sid}</Link>
+              <Link href={`/m/index.html?sid=${encodeURIComponent(r.sid)}`}>{r.sid}</Link>
             </td>
             <td>
               {r.direction === "in" ? (
@@ -85,10 +103,12 @@ export function MessageList() {
               )}
             </td>
             <td>
-              <span className="badge badge-sc">{r.channel}</span>
+              <span className={`badge ${r.channel === "comms" ? "badge-comms" : "badge-sc"}`}>
+                {r.channel}
+              </span>
             </td>
-            <td>{r.from}</td>
-            <td>{r.to}</td>
+            <td>{asText(r.from)}</td>
+            <td>{asText(r.to)}</td>
             <td>
               {r.optOutType ? (
                 <span className="badge badge-optout" title={`OptOutType: ${r.optOutType}`}>

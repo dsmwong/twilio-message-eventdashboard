@@ -5,9 +5,23 @@ const { recordEvent } = require(Runtime.getFunctions()["_shared/sync"].path);
  * Body is typically `request.body` — an array of CloudEvents-shaped envelopes.
  */
 
-function extractMessageSid(envelope) {
+function isCommsApi(envelope) {
+  return (envelope?.type || "").toString().toLowerCase().startsWith("com.twilio.comms-api.");
+}
+
+/**
+ * Sync Map key for the row this event belongs to.
+ * - Comms API events  → operation_id  (groups all events for one logical operation
+ *                                       — message stages AND operation stages —
+ *                                       into the same row + timeline).
+ * - Messaging events  → message_sid (or message_id as a fallback).
+ */
+function extractKey(envelope) {
   const p = envelope?.payload || envelope?.data || {};
-  return p.message_sid || p.messageSid || p.MessageSid || null;
+  if (isCommsApi(envelope)) {
+    return p.operation_id || p.operationId || null;
+  }
+  return p.message_sid || p.messageSid || p.MessageSid || p.message_id || p.messageId || null;
 }
 
 function extractTimestamp(envelope) {
@@ -15,6 +29,11 @@ function extractTimestamp(envelope) {
 }
 
 function extractChannel(envelope) {
+  // Comms API rows are flagged distinctly so the dashboard can tell at a glance
+  // that a row came in through the comms-api pipeline rather than the classic
+  // messaging webhook. The underlying transport (sms/whatsapp/rcs) stays in the
+  // payload for inspection.
+  if (isCommsApi(envelope)) return "comms";
   const p = envelope?.payload || envelope?.data || {};
   const src = (p.source || p.channel || "").toString().toLowerCase();
   if (src.includes("whatsapp")) return "whatsapp";
@@ -23,10 +42,26 @@ function extractChannel(envelope) {
   return undefined;
 }
 
+// Flatten an address that may be a Comms API object {address, channel} to a string.
+function flattenAddress(v) {
+  if (!v) return undefined;
+  if (typeof v === "string") return v;
+  if (typeof v === "object" && typeof v.address === "string") return v.address;
+  return undefined;
+}
+
 function extractDirection(envelope) {
   const type = (envelope?.type || "").toString().toLowerCase();
-  if (type.includes(".received")) return "in";
-  if (type.includes(".sent") || type.includes(".delivered") || type.includes(".failed") || type.includes(".undelivered"))
+  if (type.includes(".received") || type.includes("inbound-received")) return "in";
+  if (
+    type.includes(".sent") ||
+    type.includes(".delivered") ||
+    type.includes(".failed") ||
+    type.includes(".undelivered") ||
+    type.includes(".queued") ||
+    type.includes(".scheduled") ||
+    type.includes(".read")
+  )
     return "out";
   const p = envelope?.payload || envelope?.data || {};
   const d = (p.direction || "").toString().toLowerCase();
@@ -59,7 +94,7 @@ exports.handler = async function (context, event, callback) {
 
     for (const env of envelopes) {
       try {
-        const messageSid = extractMessageSid(env);
+        const messageSid = extractKey(env);
         if (!messageSid) continue;
         const eventType = env.type || env.eventtype || env.eventType || "unknown";
         const timestamp = extractTimestamp(env);
@@ -68,11 +103,13 @@ exports.handler = async function (context, event, callback) {
         const payload = env.payload || env.data || env;
         const optOutType = payload.optOutType || payload.opt_out_type || payload.OptOutType || undefined;
 
+        const flatTo = flattenAddress(payload.to);
+        const flatFrom = flattenAddress(payload.from);
         await recordEvent(context, {
           messageSid,
           messageMeta: {
-            to: payload.to,
-            from: payload.from,
+            ...(flatTo ? { to: flatTo } : {}),
+            ...(flatFrom ? { from: flatFrom } : {}),
             ...(channel ? { channel } : {}),
             ...(direction ? { direction } : {}),
             ...(optOutType ? { optOutType } : {}),

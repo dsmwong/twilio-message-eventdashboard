@@ -123,6 +123,12 @@ button:disabled {
   letter-spacing: 0.03em;
 }
 
+.badge-comms {
+  background: rgba(180, 130, 255, 0.18);
+  color: #c8a0ff;
+  border: 1px solid #c8a0ff;
+}
+
 table {
   width: 100%;
   border-collapse: collapse;

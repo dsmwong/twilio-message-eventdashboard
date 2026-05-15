@@ -11,7 +11,7 @@ function MessageDetail() {
   return (
     <div className="container stack">
       <header>
-        <Link href="/">← back</Link>
+        <Link href="/index.html">← back</Link>
         <h1 style={{ margin: "8px 0 0", fontSize: 20 }}>{sid || "(no message selected)"}</h1>
       </header>
       {sid ? <Timeline sid={sid} /> : <p className="muted">Append ?sid=MM... to the URL.</p>}

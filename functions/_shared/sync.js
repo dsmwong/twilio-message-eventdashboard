@@ -1,20 +1,46 @@
 /**
  * Shared helpers for writing messaging events into Twilio Sync.
+ *
+ * The dashboard uses TWO Sync services:
+ *
+ *   - public  (SYNC_SERVICE_SID)         — `messages`, per-message `events:*` lists,
+ *                                          `senders`, `approved_to`, `approved_senders`.
+ *                                          The browser receives a Sync grant for this one.
+ *
+ *   - private (SYNC_PRIVATE_SERVICE_SID) — `approved_admins` (bcrypt hashes),
+ *                                          `pending_verifications` Map.
+ *                                          The browser never gets a grant for this.
+ *
+ * Helpers below are split accordingly. All admin/credential lookups go through
+ * the private service via the function-side API key; the browser cannot reach it.
  */
 
 const MESSAGES_MAP = "messages";
 
-/** Resolve Sync service SID from env (prefer SYNC_SERVICE_SID, fall back to default). */
+/** Resolve PUBLIC Sync service SID. */
 function syncServiceSid(context) {
   const sid = context.SYNC_SERVICE_SID;
   if (!sid) throw new Error("SYNC_SERVICE_SID is not set in environment");
   return sid;
 }
 
-/** Return a lazily-initialized Sync service resource. */
+/** Resolve PRIVATE Sync service SID (admin/credential state). */
+function syncPrivateServiceSid(context) {
+  const sid = context.SYNC_PRIVATE_SERVICE_SID;
+  if (!sid) throw new Error("SYNC_PRIVATE_SERVICE_SID is not set in environment");
+  return sid;
+}
+
+/** Public Sync service resource (browser-readable). */
 function syncService(context) {
   const client = context.getTwilioClient();
   return client.sync.v1.services(syncServiceSid(context));
+}
+
+/** Private Sync service resource (admin/credential only). */
+function syncPrivateService(context) {
+  const client = context.getTwilioClient();
+  return client.sync.v1.services(syncPrivateServiceSid(context));
 }
 
 /** Ensure the messages Map and the per-message events List exist. Idempotent. */
@@ -88,11 +114,12 @@ async function loadApprovedTo(context) {
 }
 
 /**
- * Returns the admins array `[{name, passwordHash, createdAt}]` from `approved_admins`.
+ * Returns the admins array `[{name, passwordHash, createdAt}]` from `approved_admins`
+ * on the PRIVATE Sync service.
  * Empty array if the document doesn't exist yet.
  */
 async function loadAdmins(context) {
-  const svc = syncService(context);
+  const svc = syncPrivateService(context);
   try {
     const doc = await svc.documents(ADMINS_DOC).fetch();
     return Array.isArray(doc.data?.admins) ? doc.data.admins : [];
@@ -103,10 +130,10 @@ async function loadAdmins(context) {
 }
 
 /**
- * Replace the entire `admins` array. Creates the document on first call.
+ * Replace the entire `admins` array on the PRIVATE service. Creates the doc on first call.
  */
 async function saveAdmins(context, admins) {
-  const svc = syncService(context);
+  const svc = syncPrivateService(context);
   const data = { admins };
   try {
     await svc.documents(ADMINS_DOC).update({ data });
@@ -178,9 +205,9 @@ async function saveApprovedSenders(context, channels) {
   }
 }
 
-/** Ensure the pending_verifications Sync Map exists. Idempotent. */
+/** Ensure the pending_verifications Sync Map exists on the PRIVATE service. Idempotent. */
 async function ensurePendingVerificationsMap(context) {
-  const svc = syncService(context);
+  const svc = syncPrivateService(context);
   try {
     await svc.syncMaps.create({ uniqueName: PENDING_VERIFICATIONS_MAP });
   } catch (err) {
