@@ -44,9 +44,40 @@ export function Timeline({ sid }: { sid: string }) {
 
   const sorted = [...events].sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
   const earliest = sorted.length ? new Date(sorted[0].timestamp).getTime() : 0;
+  const isCommsOperation = sid.startsWith("comms_operation_");
+
+  if (isCommsOperation) {
+    const op = sorted.filter((e) => e.eventType?.startsWith("com.twilio.comms-api.operation"));
+    const cm = sorted.filter((e) => e.eventType?.startsWith("com.twilio.comms-api.message"));
+    const mm = sorted.filter((e) => e.eventType?.startsWith("com.twilio.messaging.message"));
+    const known = new Set([...op, ...cm, ...mm]);
+    const other = sorted.filter((e) => !known.has(e));
+    return (
+      <div className="panel">
+        <div className="row" style={{ marginBottom: 12 }}>
+          <span className="badge badge-op">Operation ({op.length})</span>
+          <span className="badge badge-es">Comms API · Message ({cm.length})</span>
+          <span className="badge badge-sc">Messaging · Message ({mm.length})</span>
+          {other.length > 0 && <span className="badge">Other ({other.length})</span>}
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: other.length > 0 ? "1fr 1fr 1fr 1fr" : "1fr 1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <Column title="Operation" kind="op" events={op} earliest={earliest} />
+          <Column title="Comms API · Message" kind="es" events={cm} earliest={earliest} />
+          <Column title="Messaging · Message" kind="sc" events={mm} earliest={earliest} />
+          {other.length > 0 && <Column title="Other" kind="op" events={other} earliest={earliest} />}
+        </div>
+      </div>
+    );
+  }
+
   const sc = sorted.filter((e) => e.source === "status-callback");
   const es = sorted.filter((e) => e.source === "event-stream");
-
   return (
     <div className="panel">
       <div className="row" style={{ marginBottom: 12 }}>
@@ -54,24 +85,33 @@ export function Timeline({ sid }: { sid: string }) {
         <span className="badge badge-es">Event Streams ({es.length})</span>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <Column title="StatusCallback" source="status-callback" events={sc} earliest={earliest} />
-        <Column title="Event Streams" source="event-stream" events={es} earliest={earliest} />
+        <Column title="StatusCallback" kind="sc" events={sc} earliest={earliest} />
+        <Column title="Event Streams" kind="es" events={es} earliest={earliest} />
       </div>
     </div>
   );
 }
 
+type ColumnKind = "op" | "sc" | "es";
+
+const KIND_VAR: Record<ColumnKind, string> = {
+  op: "var(--op)",
+  sc: "var(--sc)",
+  es: "var(--es)",
+};
+
 function Column({
   title,
-  source,
+  kind,
   events,
   earliest,
 }: {
   title: string;
-  source: "status-callback" | "event-stream";
+  kind: ColumnKind;
   events: EventRow[];
   earliest: number;
 }) {
+  const borderColor = KIND_VAR[kind];
   return (
     <div>
       <h3>{title}</h3>
@@ -82,11 +122,11 @@ function Column({
           const delta = t - earliest;
           return (
             <li
-              key={`${source}-${idx}-${e.timestamp}`}
+              key={`${kind}-${idx}-${e.timestamp}`}
               style={{
                 padding: 10,
                 marginBottom: 8,
-                borderLeft: `3px solid ${source === "status-callback" ? "var(--sc)" : "var(--es)"}`,
+                borderLeft: `3px solid ${borderColor}`,
                 background: "rgba(255,255,255,0.02)",
                 borderRadius: 4,
               }}
@@ -96,7 +136,7 @@ function Column({
                 {new Date(e.timestamp).toISOString()} (+{delta}ms)
               </div>
               <PayloadTable payload={e.payload} />
-              {source === "event-stream" && e.envelope && <EnvelopeJson envelope={e.envelope} />}
+              {e.source === "event-stream" && e.envelope && <EnvelopeJson envelope={e.envelope} />}
             </li>
           );
         })}

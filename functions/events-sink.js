@@ -10,17 +10,38 @@ function isCommsApi(envelope) {
 }
 
 /**
+ * Some classic messaging events that originated from a Comms API send carry the
+ * operation context in `payload.tags["Twilio.operation_info"]` as a
+ * comma-separated tuple: "comms_operation_<id>,<message_id>,<attempt>".
+ * If present, return the operation id so the event groups with its sibling
+ * comms-api events.
+ */
+function operationFromTags(envelope) {
+  const p = envelope?.payload || envelope?.data || {};
+  const tags = p.tags || p.Tags;
+  if (!tags || typeof tags !== "object") return null;
+  const info = tags["Twilio.operation_info"] || tags["twilio.operation_info"];
+  if (typeof info !== "string" || info.length === 0) return null;
+  const head = info.split(",")[0].trim();
+  return head.startsWith("comms_operation_") ? head : null;
+}
+
+/**
  * Sync Map key for the row this event belongs to.
  * - Comms API events  → operation_id  (groups all events for one logical operation
  *                                       — message stages AND operation stages —
  *                                       into the same row + timeline).
- * - Messaging events  → message_sid (or message_id as a fallback).
+ * - Messaging events tagged with Twilio.operation_info → that same operation_id
+ *   (so the classic StatusCallback-style event sits next to its comms-api siblings).
+ * - Messaging events without a tag → message_sid (or message_id as a fallback).
  */
 function extractKey(envelope) {
   const p = envelope?.payload || envelope?.data || {};
   if (isCommsApi(envelope)) {
     return p.operation_id || p.operationId || null;
   }
+  const taggedOp = operationFromTags(envelope);
+  if (taggedOp) return taggedOp;
   return p.message_sid || p.messageSid || p.MessageSid || p.message_id || p.messageId || null;
 }
 
@@ -32,8 +53,9 @@ function extractChannel(envelope) {
   // Comms API rows are flagged distinctly so the dashboard can tell at a glance
   // that a row came in through the comms-api pipeline rather than the classic
   // messaging webhook. The underlying transport (sms/whatsapp/rcs) stays in the
-  // payload for inspection.
-  if (isCommsApi(envelope)) return "comms";
+  // payload for inspection. Messaging events that carry a Twilio.operation_info
+  // tag also belong to a comms-api operation — group them under "comms".
+  if (isCommsApi(envelope) || operationFromTags(envelope)) return "comms";
   const p = envelope?.payload || envelope?.data || {};
   const src = (p.source || p.channel || "").toString().toLowerCase();
   if (src.includes("whatsapp")) return "whatsapp";
