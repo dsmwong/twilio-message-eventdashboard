@@ -21,6 +21,7 @@ const nextConfig = {
       { source: "/status-callback", destination: `${target}/status-callback` },
       { source: "/events-sink", destination: `${target}/events-sink` },
       { source: "/incoming-sms", destination: `${target}/incoming-sms` },
+      { source: "/admin-:path", destination: `${target}/admin-:path` },
     ];
   },
 };

@@ -11,6 +11,9 @@ importers:
       '@twilio/runtime-handler':
         specifier: 2.0.3
         version: 2.0.3
+      bcryptjs:
+        specifier: 3.0.3
+        version: 3.0.3
       twilio:
         specifier: 5.13.1
         version: 5.13.1
@@ -500,6 +503,10 @@ packages:
 
   bcrypt-pbkdf@1.0.2:
     resolution: {integrity: sha512-qeFIXtP4MSoi6NLqO12WfqARWWuCKi2Rn/9hJLEmtB5yTNr9DqFWkJRCf2qShWzPeAMRnOgCrq0sg/KLv5ES9w==}
+
+  bcryptjs@3.0.3:
+    resolution: {integrity: sha512-GlF5wPWnSa/X5LKM1o0wz0suXIINz1iHRLvTS+sLyi7XPbe5ycmYI3DlZqVGZZtDgl4DmasFg7gOB3JYbphV5g==}
+    hasBin: true
 
   binary-extensions@2.3.0:
     resolution: {integrity: sha512-Ceh+7ox5qe7LJuLHoY0feh3pHuUDHAcRUeyL2VYghZwfpkNIy/+8Ocg0a3UuSoYzavmylwuLWQOf3hl0jjMMIw==}
@@ -2524,6 +2531,8 @@ snapshots:
     dependencies:
       tweetnacl: 0.14.5
     optional: true
+
+  bcryptjs@3.0.3: {}
 
   binary-extensions@2.3.0: {}
 

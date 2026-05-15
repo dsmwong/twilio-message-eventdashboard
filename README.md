@@ -14,11 +14,13 @@ Twilio Event Streams ──Webhook Sink──────────┘
 ```
 
 Functions:
-- `POST /send` — sends SMS / WhatsApp / RCS via the Content API (or SMS free-form).
+- `POST /send` — sends SMS / WhatsApp / RCS via the Content API (or SMS free-form). **Admin-only**, **destination must be on the allowlist**.
 - `GET /templates` — lists Content API templates available on this account.
 - `POST /sync-token` — mints Access Tokens for the browser Sync client.
 - `POST /status-callback` — receives per-message status webhooks.
 - `POST /events-sink` — receives batched Event Streams events.
+- `POST /admin-login` / `POST /admin-logout` / `GET /admin-me` — session cookie auth for admins.
+- `GET /admin-list` / `POST /admin-create` / `POST /admin-remove` / `POST /admin-rotate` — admin management (admin-only).
 
 Frontend:
 - `/` — send form + live message list.
@@ -67,6 +69,51 @@ pnpm run refresh:senders -- --preserve  # merge-only (union by value, keeps manu
 ```
 
 Manual edits: Twilio Console → Sync → Documents → `senders`, or `POST` to `/v1/Services/.../Documents/senders` with `Data=<json>`.
+
+### Approved destinations (allowlist)
+
+`functions/send.js` only accepts a `to` value listed in the **`approved_to`** Sync Document — same live-subscription pattern as `senders`. The UI's "To" field is a dropdown sourced from this document, and any hand-crafted POST whose `to` isn't on the list is rejected with HTTP 403.
+
+Schema:
+
+```json
+{
+  "numbers": [
+    { "label": "My phone", "value": "+61417000000" },
+    { "label": "Customer ACME (CTO)", "value": "+15551234567" }
+  ]
+}
+```
+
+Seed / refresh:
+
+```sh
+cp data/approved-to.example.json data/approved-to.json   # gitignored
+# edit data/approved-to.json
+pnpm run refresh:approved                                # default file: data/approved-to.json
+pnpm run refresh:approved path/to/other.json             # alt file
+```
+
+Manual edits: Twilio Console → Sync → Documents → `approved_to`. Connected browsers update instantly.
+
+### Roles & access
+
+The dashboard has two roles, **served from one URL**:
+
+- **Viewer** (default, no login) — sees the message list + timeline. Send form is visible but greyed out (`<fieldset disabled>`).
+- **Admin** (signed in) — full access: send messages, manage admins.
+
+Auth is name + password. Passwords are hashed with bcrypt (cost 12) and stored in the **`approved_admins`** Sync Document. Sessions are HttpOnly+Secure+SameSite=Lax cookies HMAC-signed by `SESSION_SECRET`.
+
+**One-time deploy steps:**
+
+```sh
+pnpm run session:secret                # 32-byte hex; paste into .env and .env.deploy as SESSION_SECRET=…
+pnpm run deploy                        # ship the latest functions + UI
+pnpm run admin:bootstrap               # interactive: name + password (echo-off)
+```
+
+`admin:bootstrap` refuses to run if any admins already exist — once you've seeded the first one, every subsequent change happens through the **Manage admins** panel inside the dashboard (add / rotate / remove). Self-removal and last-admin-removal are blocked server-side.
 
 ## Develop
 

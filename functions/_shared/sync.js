@@ -64,4 +64,60 @@ async function recordEvent(context, { messageSid, messageMeta, event }) {
   await svc.syncLists(listName).syncListItems.create({ data: event });
 }
 
-module.exports = { recordEvent, MESSAGES_MAP };
+const APPROVED_TO_DOC = "approved_to";
+const ADMINS_DOC = "approved_admins";
+
+/**
+ * Returns a Set of approved E.164 destinations from the `approved_to` Sync Document.
+ * Returns null if the document doesn't exist (callers should fail closed).
+ */
+async function loadApprovedTo(context) {
+  const svc = syncService(context);
+  try {
+    const doc = await svc.documents(APPROVED_TO_DOC).fetch();
+    const numbers = Array.isArray(doc.data?.numbers) ? doc.data.numbers : [];
+    return new Set(numbers.map((n) => n.value).filter(Boolean));
+  } catch (err) {
+    if (err.status === 404) return null;
+    throw err;
+  }
+}
+
+/**
+ * Returns the admins array `[{name, passwordHash, createdAt}]` from `approved_admins`.
+ * Empty array if the document doesn't exist yet.
+ */
+async function loadAdmins(context) {
+  const svc = syncService(context);
+  try {
+    const doc = await svc.documents(ADMINS_DOC).fetch();
+    return Array.isArray(doc.data?.admins) ? doc.data.admins : [];
+  } catch (err) {
+    if (err.status === 404) return [];
+    throw err;
+  }
+}
+
+/**
+ * Replace the entire `admins` array. Creates the document on first call.
+ */
+async function saveAdmins(context, admins) {
+  const svc = syncService(context);
+  const data = { admins };
+  try {
+    await svc.documents(ADMINS_DOC).update({ data });
+  } catch (err) {
+    if (err.status !== 404) throw err;
+    await svc.documents.create({ uniqueName: ADMINS_DOC, data });
+  }
+}
+
+module.exports = {
+  recordEvent,
+  MESSAGES_MAP,
+  APPROVED_TO_DOC,
+  ADMINS_DOC,
+  loadApprovedTo,
+  loadAdmins,
+  saveAdmins,
+};

@@ -44,3 +44,17 @@ export interface SendersConfig {
   whatsapp: Sender[];
   rcs: Sender[];
 }
+
+export interface ApprovedNumber {
+  label: string;
+  value: string;
+}
+
+export interface ApprovedToConfig {
+  numbers: ApprovedNumber[];
+}
+
+export interface AdminInfo {
+  name: string;
+  createdAt: string;
+}

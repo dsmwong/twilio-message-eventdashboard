@@ -21,6 +21,9 @@ assets/*
 # Claude Code
 .claude/settings.local.json
 
+# Local approved-to allowlist (may contain customer numbers)
+data/approved-to.json
+
 # Logs
 *.log
 npm-debug.log*

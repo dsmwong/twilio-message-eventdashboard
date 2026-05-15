@@ -1,8 +1,12 @@
 /**
  * POST /send
  * Body: { channel, to, from, body?, contentSid?, contentVariables? }
+ * Auth: signed admin cookie (dashboard_session) — viewers cannot send.
+ * Allowlist: `to` must be present in the `approved_to` Sync Document.
  * Calls twilio.messages.create(...) with a statusCallback pointing at this deployment's status-callback URL.
  */
+const { requireAdmin } = require(Runtime.getFunctions()["_shared/auth"].path);
+const { loadApprovedTo } = require(Runtime.getFunctions()["_shared/sync"].path);
 
 function normalize(channel, address) {
   if (!address) return address;
@@ -14,9 +18,11 @@ function normalize(channel, address) {
 exports.handler = async function (context, event, callback) {
   const response = new Twilio.Response();
   response.appendHeader("Content-Type", "application/json");
-  response.appendHeader("Access-Control-Allow-Origin", "*");
 
   try {
+    // 1. Admin session required.
+    requireAdmin(context, event);
+
     const { channel, to, from, body, contentSid, contentVariables } = event;
     if (!channel || !to || !from) {
       response.setStatusCode(400);
@@ -26,6 +32,20 @@ exports.handler = async function (context, event, callback) {
     if (!contentSid && !body) {
       response.setStatusCode(400);
       response.setBody({ error: "Either contentSid or body is required" });
+      return callback(null, response);
+    }
+
+    // 2. Destination must be on the allowlist (compared pre-normalization
+    // against the canonical E.164 stored in approved_to).
+    const approved = await loadApprovedTo(context);
+    if (!approved) {
+      response.setStatusCode(503);
+      response.setBody({ error: "approved_to allowlist is not configured" });
+      return callback(null, response);
+    }
+    if (!approved.has(to)) {
+      response.setStatusCode(403);
+      response.setBody({ error: "destination not in allowlist" });
       return callback(null, response);
     }
 

@@ -11,13 +11,17 @@
     "start": "twilio-run --env .env",
     "deploy": "pnpm run build && twilio serverless:deploy --env .env.deploy",
     "refresh:senders": "node scripts/refresh-senders.mjs",
-    "backfill:optout": "node scripts/backfill-optout.mjs"
+    "refresh:approved": "node scripts/refresh-approved-to.mjs",
+    "backfill:optout": "node scripts/backfill-optout.mjs",
+    "admin:bootstrap": "node scripts/admin-bootstrap.mjs",
+    "session:secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
   },
   "devDependencies": {
     "twilio-run": "^4.1.2"
   },
   "dependencies": {
     "@twilio/runtime-handler": "2.0.3",
+    "bcryptjs": "3.0.3",
     "twilio": "5.13.1"
   },
   "engines": {
