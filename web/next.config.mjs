@@ -15,6 +15,10 @@ const nextConfig = {
     if (!isDev) return [];
     const target = process.env.FUNCTIONS_ORIGIN || "http://localhost:3333";
     return [
+      // Mirror the deployed asset paths so links written for production
+      // (e.g. /index.html, /m/index.html) resolve to the Next dev pages.
+      { source: "/index.html", destination: "/" },
+      { source: "/m/index.html", destination: "/m" },
       { source: "/send", destination: `${target}/send` },
       { source: "/templates", destination: `${target}/templates` },
       { source: "/sync-token", destination: `${target}/sync-token` },
@@ -26,6 +30,8 @@ const nextConfig = {
       { source: "/verify-:path", destination: `${target}/verify-:path` },
       { source: "/senders-approved", destination: `${target}/senders-approved` },
       { source: "/senders-approved-set", destination: `${target}/senders-approved-set` },
+      { source: "/comms-senders", destination: `${target}/comms-senders` },
+      { source: "/send-comms", destination: `${target}/send-comms` },
     ];
   },
 };

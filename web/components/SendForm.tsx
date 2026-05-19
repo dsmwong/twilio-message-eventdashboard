@@ -8,6 +8,7 @@ import type {
   ApprovedSendersConfig,
   ApprovedToConfig,
   Channel,
+  CommsSender,
   Sender,
   SendersConfig,
   TemplateSummary,
@@ -17,6 +18,7 @@ const CHANNELS: { value: Channel; label: string }[] = [
   { value: "sms", label: "SMS" },
   { value: "whatsapp", label: "WhatsApp" },
   { value: "rcs", label: "RCS" },
+  { value: "comms", label: "Comms API (bulk)" },
 ];
 
 const FREE_FORM = "__free__";
@@ -28,8 +30,10 @@ export function SendForm() {
   const [approvedSenders, setApprovedSenders] = useState<ApprovedSendersConfig | null>(null);
   const [approved, setApproved] = useState<ApprovedNumber[] | null>(null);
   const [templates, setTemplates] = useState<TemplateSummary[] | null>(null);
+  const [commsCatalogue, setCommsCatalogue] = useState<CommsSender[] | null>(null);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [toMulti, setToMulti] = useState<string[]>([]);
   const [body, setBody] = useState("");
   const [templateSid, setTemplateSid] = useState<string>(FREE_FORM);
   const [vars, setVars] = useState<Record<string, string>>({});
@@ -83,13 +87,14 @@ export function SendForm() {
             sms: Array.isArray(cfg.sms) ? cfg.sms : [],
             whatsapp: Array.isArray(cfg.whatsapp) ? cfg.whatsapp : [],
             rcs: Array.isArray(cfg.rcs) ? cfg.rcs : [],
+            comms: Array.isArray(cfg.comms) ? cfg.comms : [],
           });
         };
         apply(doc.data);
         doc.on("updated", ({ data }) => apply(data));
       } catch (e) {
         // Treat missing document as "nothing approved".
-        setApprovedSenders({ sms: [], whatsapp: [], rcs: [] });
+        setApprovedSenders({ sms: [], whatsapp: [], rcs: [], comms: [] });
       }
     })();
     return () => {
@@ -132,15 +137,47 @@ export function SendForm() {
     };
   }, [admin]);
 
+  // Lazily fetch the Comms API sender catalogue when first needed (admin-only).
+  useEffect(() => {
+    if (channel !== "comms" || !admin || commsCatalogue) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/comms-senders", { credentials: "include" });
+        if (!res.ok) throw new Error(`comms-senders ${res.status}`);
+        const json = (await res.json()) as { catalogue: CommsSender[] };
+        if (!cancelled) setCommsCatalogue(json.catalogue ?? []);
+      } catch (e) {
+        if (!cancelled) {
+          setCommsCatalogue([]);
+          setStatus(`Failed to load Comms API senders: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [channel, admin, commsCatalogue]);
+
   const channelSenders: Sender[] = useMemo(() => {
+    if (channel === "comms") {
+      const all = (commsCatalogue ?? []).map<Sender>((c) => ({
+        label: c.channel ? `${c.label} [${c.channel}]` : c.label,
+        value: c.value,
+        kind: "phone",
+      }));
+      if (!approvedSenders) return all;
+      const set = new Set(approvedSenders.comms ?? []);
+      return all.filter((s) => set.has(s.value));
+    }
     const all = senders ? senders[channel] ?? [] : [];
     if (!approvedSenders) return all; // not yet loaded — don't strip
     const set = new Set(approvedSenders[channel] ?? []);
     return all.filter((s) => set.has(s.value));
-  }, [senders, approvedSenders, channel]);
+  }, [senders, approvedSenders, channel, commsCatalogue]);
 
   const channelTemplates = useMemo(
-    () => (templates ?? []).filter((t) => t.channels.includes(channel)),
+    () => (templates ?? []).filter((t) => t.channels.includes(channel as "sms" | "whatsapp" | "rcs")),
     [templates, channel]
   );
 
@@ -149,9 +186,8 @@ export function SendForm() {
   }, [channelSenders]);
 
   useEffect(() => {
-    if (channel !== "sms") {
-      if (templateSid === FREE_FORM) setTemplateSid(channelTemplates[0]?.sid ?? "");
-    }
+    if (channel === "sms" || channel === "comms") return;
+    if (templateSid === FREE_FORM) setTemplateSid(channelTemplates[0]?.sid ?? "");
   }, [channel, channelTemplates, templateSid]);
 
   // Reset destination when allowlist changes / first loads.
@@ -161,17 +197,39 @@ export function SendForm() {
     }
   }, [approved, to]);
 
+  // Drop multi-select picks that disappear from the allowlist.
+  useEffect(() => {
+    if (!approved) return;
+    const allowed = new Set(approved.map((n) => n.value));
+    setToMulti((prev) => prev.filter((v) => allowed.has(v)));
+  }, [approved]);
+
   const selectedTemplate = channelTemplates.find((t) => t.sid === templateSid);
   const isViewer = !authLoading && !admin;
   const allowlistEmpty = approved !== null && approved.length === 0;
   const noApprovedSendersForChannel =
     approvedSenders !== null && (approvedSenders[channel]?.length ?? 0) === 0;
+  const isComms = channel === "comms";
 
   async function submit(ev: React.FormEvent) {
     ev.preventDefault();
     setSubmitting(true);
     setStatus(null);
     try {
+      if (isComms) {
+        if (toMulti.length === 0) throw new Error("pick at least one recipient");
+        const res = await fetch("/send-comms", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from, to: toMulti, body }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? `send-comms ${res.status}`);
+        setStatus(`Sent operation: ${json.operationId} (${json.recipientCount} recipients)`);
+        return;
+      }
+
       const payload: Record<string, unknown> = { channel, to, from };
       if (templateSid === FREE_FORM) payload.body = body;
       else {
@@ -193,6 +251,11 @@ export function SendForm() {
       setSubmitting(false);
     }
   }
+
+  const sendDisabled =
+    submitting ||
+    !from ||
+    (isComms ? toMulti.length === 0 || !body : !to);
 
   return (
     <form onSubmit={submit} className="stack">
@@ -243,10 +306,34 @@ export function SendForm() {
                 ))}
               </select>
             </label>
-            <label className="stack" style={{ flex: "2 1 200px" }}>
-              <span className="muted">To (approved destinations)</span>
-              <select value={to} onChange={(e) => setTo(e.target.value)} required>
-                {(approved ?? []).length === 0 && <option value="">No approved destinations</option>}
+            {!isComms && (
+              <label className="stack" style={{ flex: "2 1 200px" }}>
+                <span className="muted">To (approved destinations)</span>
+                <select value={to} onChange={(e) => setTo(e.target.value)} required>
+                  {(approved ?? []).length === 0 && <option value="">No approved destinations</option>}
+                  {(approved ?? []).map((n) => (
+                    <option key={n.value} value={n.value}>
+                      {n.label} ({n.value})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+
+          {isComms && (
+            <label className="stack">
+              <span className="muted">
+                Recipients ({toMulti.length} selected) — Cmd/Ctrl-click to pick multiple
+              </span>
+              <select
+                multiple
+                value={toMulti}
+                onChange={(e) =>
+                  setToMulti(Array.from(e.target.selectedOptions).map((o) => o.value))
+                }
+                size={Math.min(8, Math.max(3, (approved ?? []).length))}
+              >
                 {(approved ?? []).map((n) => (
                   <option key={n.value} value={n.value}>
                     {n.label} ({n.value})
@@ -254,24 +341,26 @@ export function SendForm() {
                 ))}
               </select>
             </label>
-          </div>
+          )}
 
-          <label className="stack">
-            <span className="muted">Template</span>
-            <select value={templateSid} onChange={(e) => setTemplateSid(e.target.value)}>
-              {channel === "sms" && <option value={FREE_FORM}>Free-form body</option>}
-              {channelTemplates.length === 0 && channel !== "sms" && (
-                <option value="">No templates for {channel}</option>
-              )}
-              {channelTemplates.map((t) => (
-                <option key={t.sid} value={t.sid}>
-                  {t.friendlyName} ({t.language}) — {t.types.join(", ")}
-                </option>
-              ))}
-            </select>
-          </label>
+          {!isComms && (
+            <label className="stack">
+              <span className="muted">Template</span>
+              <select value={templateSid} onChange={(e) => setTemplateSid(e.target.value)}>
+                {channel === "sms" && <option value={FREE_FORM}>Free-form body</option>}
+                {channelTemplates.length === 0 && channel !== "sms" && (
+                  <option value="">No templates for {channel}</option>
+                )}
+                {channelTemplates.map((t) => (
+                  <option key={t.sid} value={t.sid}>
+                    {t.friendlyName} ({t.language}) — {t.types.join(", ")}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
-          {templateSid === FREE_FORM ? (
+          {isComms || templateSid === FREE_FORM ? (
             <label className="stack">
               <span className="muted">Body</span>
               <textarea
@@ -300,8 +389,8 @@ export function SendForm() {
           ) : null}
 
           <div className="row" style={{ alignItems: "center" }}>
-            <button type="submit" disabled={submitting || !from || !to}>
-              {submitting ? "Sending…" : "Send"}
+            <button type="submit" disabled={sendDisabled}>
+              {submitting ? "Sending…" : isComms ? `Send to ${toMulti.length}` : "Send"}
             </button>
             {status && <span className="muted">{status}</span>}
           </div>

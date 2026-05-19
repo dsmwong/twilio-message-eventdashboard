@@ -2,21 +2,29 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { getSyncClient } from "../lib/sync";
-import type { ApprovedSendersConfig, Channel, Sender, SendersConfig } from "../lib/types";
+import type {
+  ApprovedSendersConfig,
+  Channel,
+  CommsSender,
+  Sender,
+  SendersConfig,
+} from "../lib/types";
 
 const CHANNELS: { value: Channel; label: string }[] = [
   { value: "sms", label: "SMS" },
   { value: "whatsapp", label: "WhatsApp" },
   { value: "rcs", label: "RCS" },
+  { value: "comms", label: "Comms API" },
 ];
 
 export function ApprovedSendersSection() {
   const [senders, setSenders] = useState<SendersConfig | null>(null);
   const [approved, setApproved] = useState<ApprovedSendersConfig | null>(null);
+  const [commsCatalogue, setCommsCatalogue] = useState<CommsSender[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<Record<string, boolean>>({}); // value -> in-flight
 
-  // Subscribe to senders catalogue.
+  // Subscribe to senders catalogue (sms/whatsapp/rcs).
   useEffect(() => {
     let doc: Awaited<ReturnType<Awaited<ReturnType<typeof getSyncClient>>["document"]>> | null = null;
     let cancelled = false;
@@ -39,6 +47,27 @@ export function ApprovedSendersSection() {
     };
   }, []);
 
+  // Fetch the Comms API sender catalogue (admin-only endpoint).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/comms-senders", { credentials: "include" });
+        if (!res.ok) throw new Error(`comms-senders ${res.status}`);
+        const json = (await res.json()) as { catalogue: CommsSender[] };
+        if (!cancelled) setCommsCatalogue(json.catalogue ?? []);
+      } catch (e) {
+        if (!cancelled) {
+          setError(`comms-senders: ${e instanceof Error ? e.message : String(e)}`);
+          setCommsCatalogue([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Subscribe to approved senders.
   useEffect(() => {
     let doc: Awaited<ReturnType<Awaited<ReturnType<typeof getSyncClient>>["document"]>> | null = null;
@@ -54,13 +83,14 @@ export function ApprovedSendersSection() {
             sms: Array.isArray(cfg.sms) ? cfg.sms : [],
             whatsapp: Array.isArray(cfg.whatsapp) ? cfg.whatsapp : [],
             rcs: Array.isArray(cfg.rcs) ? cfg.rcs : [],
+            comms: Array.isArray(cfg.comms) ? cfg.comms : [],
           });
         };
         apply(doc.data);
         doc.on("updated", ({ data }) => apply(data));
       } catch (e) {
         setError(`approved_senders: ${e instanceof Error ? e.message : String(e)}`);
-        setApproved({ sms: [], whatsapp: [], rcs: [] });
+        setApproved({ sms: [], whatsapp: [], rcs: [], comms: [] });
       }
     })();
     return () => {
@@ -74,8 +104,35 @@ export function ApprovedSendersSection() {
       sms: new Set(approved?.sms ?? []),
       whatsapp: new Set(approved?.whatsapp ?? []),
       rcs: new Set(approved?.rcs ?? []),
+      comms: new Set(approved?.comms ?? []),
     };
   }, [approved]);
+
+  /** Lookup map: comms sender address → upstream channel (SMS|RCS|WHATSAPP). */
+  const commsChannelByValue = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of commsCatalogue ?? []) {
+      if (c.value && c.channel) m.set(c.value, c.channel.toUpperCase());
+    }
+    return m;
+  }, [commsCatalogue]);
+
+  function listFor(channel: Channel): Sender[] {
+    if (channel === "comms") {
+      return (commsCatalogue ?? []).map<Sender>((c) => ({
+        label: c.label,
+        value: c.value,
+        kind: "phone",
+      }));
+    }
+    return senders?.[channel] ?? [];
+  }
+
+  function channelPillClass(ch: string): string {
+    if (ch === "WHATSAPP") return "badge badge-channel-whatsapp";
+    if (ch === "RCS") return "badge badge-channel-rcs";
+    return "badge badge-channel-sms";
+  }
 
   async function toggle(channel: Channel, value: string, currentlyApproved: boolean) {
     if (!approved) return;
@@ -104,6 +161,8 @@ export function ApprovedSendersSection() {
     }
   }
 
+  const loading = !senders || !approved || commsCatalogue === null;
+
   return (
     <section className="stack" style={{ borderTop: "1px solid var(--border)", paddingTop: 12 }}>
       <h3 style={{ margin: 0, fontSize: 14 }}>Approved senders (From)</h3>
@@ -112,13 +171,17 @@ export function ApprovedSendersSection() {
       </p>
       {error && <p style={{ color: "tomato", margin: 0, fontSize: 12 }}>{error}</p>}
 
-      {!senders || !approved ? (
+      {loading ? (
         <p className="muted">Loading…</p>
       ) : (
         <div className="stack" style={{ gap: 16 }}>
           {CHANNELS.map((c) => {
-            const list: Sender[] = senders[c.value] ?? [];
+            const list: Sender[] = listFor(c.value);
             const set = approvedSets[c.value];
+            const refreshHint =
+              c.value === "comms"
+                ? "Senders are loaded live from the Channels Senders API."
+                : "No senders configured for this channel. Run `pnpm run refresh:senders`.";
             return (
               <div key={c.value} className="stack" style={{ gap: 6 }}>
                 <strong style={{ fontSize: 13 }}>
@@ -129,7 +192,7 @@ export function ApprovedSendersSection() {
                 </strong>
                 {list.length === 0 ? (
                   <p className="muted" style={{ margin: 0, fontSize: 12 }}>
-                    No senders configured for this channel. Run <code>pnpm run refresh:senders</code>.
+                    {refreshHint}
                   </p>
                 ) : (
                   <div
@@ -142,6 +205,8 @@ export function ApprovedSendersSection() {
                     {list.map((s) => {
                       const isApproved = set.has(s.value);
                       const inFlight = Boolean(pending[s.value]);
+                      const pillChannel =
+                        c.value === "comms" ? commsChannelByValue.get(s.value) : undefined;
                       return (
                         <label
                           key={s.value}
@@ -164,7 +229,26 @@ export function ApprovedSendersSection() {
                             onChange={() => toggle(c.value, s.value, isApproved)}
                             style={{ margin: 0 }}
                           />
-                          <span style={{ fontSize: 12, lineHeight: 1.3 }}>{s.label}</span>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              lineHeight: 1.3,
+                              flex: 1,
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {s.label}
+                          </span>
+                          {pillChannel && (
+                            <span
+                              className={channelPillClass(pillChannel)}
+                              style={{ fontSize: 10 }}
+                            >
+                              {pillChannel}
+                            </span>
+                          )}
                         </label>
                       );
                     })}

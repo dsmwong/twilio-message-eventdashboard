@@ -15,6 +15,8 @@ Twilio Event Streams ──Webhook Sink──────────┘
 
 Functions:
 - `POST /send` — sends SMS / WhatsApp / RCS via the Content API (or SMS free-form). **Admin-only**, **destination must be on the allowlist**, **From must be on the per-channel approved-senders list**.
+- `POST /send-comms` — bulk send via the Twilio **Communications API** (`POST https://comms.twilio.com/v1/Messages`). One operation, up to 100 recipients, free-form SMS body. Same admin / `approved_to` / `approved_senders.comms` gates as `/send`. Returns `{operationId, recipientCount}`.
+- `GET /comms-senders` — admin-only catalogue of `ONLINE` Channels Senders (`channel=sms`) plus the current `approved_senders.comms` slice. The browser fetches this on demand when "Comms API" is selected — these senders are **not** mirrored into the Sync `senders` document.
 - `GET /templates` — lists Content API templates available on this account.
 - `POST /sync-token` — mints Access Tokens for the browser Sync client. Returns viewer-scope (30m) by default, admin-scope (1h) when an admin cookie is present. Both grants reach only the **public** Sync service (no credentials there).
 - `POST /status-callback` — receives per-message status webhooks. **Twilio request signature required** (403 on mismatch).

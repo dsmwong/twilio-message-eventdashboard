@@ -130,6 +130,24 @@ button:disabled {
   border: 1px solid #c8a0ff;
 }
 
+.badge-channel-sms {
+  background: rgba(67, 197, 158, 0.15);
+  color: var(--sc);
+  border: 1px solid var(--sc);
+}
+
+.badge-channel-rcs {
+  background: rgba(124, 140, 255, 0.18);
+  color: var(--op);
+  border: 1px solid var(--op);
+}
+
+.badge-channel-whatsapp {
+  background: rgba(37, 211, 102, 0.18);
+  color: #25d366;
+  border: 1px solid #25d366;
+}
+
 .badge-op {
   background: rgba(124, 140, 255, 0.15);
   color: var(--op);

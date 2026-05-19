@@ -95,7 +95,7 @@ const APPROVED_SENDERS_DOC = "approved_senders";
 const ADMINS_DOC = "approved_admins";
 const PENDING_VERIFICATIONS_MAP = "pending_verifications";
 
-const SENDER_CHANNELS = ["sms", "whatsapp", "rcs"];
+const SENDER_CHANNELS = ["sms", "whatsapp", "rcs", "comms"];
 
 /**
  * Returns a Set of approved E.164 destinations from the `approved_to` Sync Document.

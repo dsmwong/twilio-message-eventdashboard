@@ -1,12 +1,8 @@
 /** Channels the SendForm can target. */
-export type Channel = "sms" | "whatsapp" | "rcs";
+export type Channel = "sms" | "whatsapp" | "rcs" | "comms";
 
-/**
- * Channel value stored on a MessageRow. Includes "comms" for rows that came
- * in via the Comms API event-stream pipeline (which we don't send through
- * from the dashboard, only observe).
- */
-export type MessageChannel = Channel | "comms";
+/** Channel value stored on a MessageRow. Same set as the send channels. */
+export type MessageChannel = Channel;
 
 export interface MessageRow {
   to: string;
@@ -53,6 +49,20 @@ export interface SendersConfig {
   rcs: Sender[];
 }
 
+/**
+ * Comms API sender catalogue (loaded live from /comms-senders, not from Sync).
+ * `value` is the bare phone number / address; `channel` is the upstream
+ * Comms API channel (SMS / RCS / WHATSAPP); `status` is `ACTIVATED` for
+ * everything we surface (the function filters out DEACTIVATED).
+ */
+export interface CommsSender {
+  label: string;
+  value: string;
+  status: string;
+  id?: string;
+  channel?: string;
+}
+
 export interface ApprovedNumber {
   label: string;
   value: string;
@@ -70,6 +80,7 @@ export interface ApprovedSendersConfig {
   sms: string[];
   whatsapp: string[];
   rcs: string[];
+  comms: string[];
 }
 
 export interface AdminInfo {
