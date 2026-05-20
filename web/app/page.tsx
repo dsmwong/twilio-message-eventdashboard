@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AuthProvider, useAuth } from "../lib/auth";
 import { AdminPanel } from "../components/AdminPanel";
 import { Header } from "../components/Header";
-import { MessageList } from "../components/MessageList";
+import { HomeTabs } from "../components/HomeTabs";
 import { SendForm } from "../components/SendForm";
 
 function HomeBody() {
@@ -19,10 +19,7 @@ function HomeBody() {
         <SendForm />
       </section>
       {admin && adminPanelOpen && <AdminPanel onClose={() => setAdminPanelOpen(false)} />}
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>Recent messages</h2>
-        <MessageList />
-      </section>
+      <HomeTabs />
     </div>
   );
 }

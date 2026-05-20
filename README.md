@@ -22,6 +22,8 @@ Functions:
 - `POST /status-callback` — receives per-message status webhooks. **Twilio request signature required** (403 on mismatch).
 - `POST /incoming-sms` — receives inbound SMS/MMS. **Twilio request signature required** (403 on mismatch).
 - `POST /events-sink` — receives batched Event Streams events. Classic messaging events are keyed by `MessageSid`; `com.twilio.comms-api.*` events are keyed by `operation_id` and tagged with `channel: "comms"` so all events (message-stage + operation-stage) for one send group together.
+- `POST /orchestrator-callback` — receives Twilio Conversation Orchestrator (Conversations v2) statusCallbacks. **Twilio request signature required** (JSON-body variant — `validateRequestWithBody`). Calls `GET /v2/Conversations/{id}` and `GET /v2/Conversations/{id}/Communications`, writes a row keyed by the conversation id (`channel: "conversations"`) into the `messages` Sync Map, appends lifecycle + each new Communication into `events:{conversationId}` (deduped by communication id), and updates the `phone_to_conversations` Sync Document for every participant address.
+- `GET /phones-list` — non-Sync REST view of the `phone_to_conversations` Sync Document (returns `{phones: [{value, conversationCount, lastActivityAt}]}`). The browser primarily subscribes to the Sync Document directly for live updates; this endpoint is a fallback.
 - `POST /admin-login` / `POST /admin-logout` / `GET /admin-me` — session cookie auth for admins.
 - `GET /admin-list` / `POST /admin-create` / `POST /admin-remove` / `POST /admin-rotate` — admin management (admin-only).
 - `GET /approved-list` / `POST /approved-remove` — destination allowlist management (admin-only).
@@ -132,13 +134,45 @@ Schema:
 
 Manage in the dashboard (admin → Manage admins → Approved senders): each channel shows every entry in `senders[channel]` with a checkbox. Toggling a checkbox immediately rewrites that channel's array. Empty array for a channel means "no sends from that channel" until something is approved.
 
+### Conversation Orchestrator (Conversations v2)
+
+The dashboard captures every Twilio Conversation created by the Orchestrator into a third tab on the home page (alongside Messages and Phones), and surfaces a per-customer-phone-number drilldown showing which conversations a number has participated in.
+
+Provision a Memory Store and a Configuration in the [Twilio Console](https://console.twilio.com) (the typed SDK doesn't yet expose these resources, and the Memory Store API requires per-account enablement). Then paste the IDs into `.env` and `.env.deploy`:
+
+```
+MEMORY_STORE_ID=mem_store_…
+CONVERSATIONS_CONFIG_ID=conv_configuration_…
+ORCHESTRATOR_CALLBACK_SECRET=<32-byte hex; generate with `node -e "console.log(require('crypto').randomBytes(24).toString('hex'))"`>
+```
+
+Configure the Configuration's `statusCallbacks` (in the Console or via `PUT /v2/ControlPlane/Configurations/{id}`) to:
+
+```
+https://<your-domain>/orchestrator-callback?secret=<ORCHESTRATOR_CALLBACK_SECRET>
+```
+
+The secret is mandatory — Conversation Orchestrator does NOT sign its statusCallbacks (no `X-Twilio-Signature` header), so the dashboard validates a shared secret on the URL instead. Mismatch = 403.
+
+A bootstrap helper script `pnpm run conversations:bootstrap` is included but is currently best-effort — at the time of writing the Memory Store API was not enabled on the test account, so the script's `POST /v1/Services` call may 404. The Console flow above is the supported path.
+
+Admin transitions:
+- **Inactive** / **Activate** / **Close** buttons on the Conversations tab — admin-only — `PATCH /v2/Conversations/{id}` with the chosen status. The dashboard updates the local Sync row inline (Twilio's statusCallback delivery for programmatic PATCHes is inconsistent, especially for `ACTIVE` transitions).
+
+Notes:
+- Orchestrator does NOT publish a public Event Streams family — every state change (CONVERSATION_CREATED, PARTICIPANT_ADDED, COMMUNICATION_CREATED, CONVERSATION_INACTIVE, CONVERSATION_CLOSED, etc.) arrives only at `/orchestrator-callback`. Each callback's body is the canonical event payload.
+- The eventType is stored verbatim from the upstream callback (e.g. `CONVERSATION_CREATED`, `PARTICIPANT_ADDED`).
+- Conversations grouping is `GROUP_BY_PROFILE` — the same customer's SMS, WhatsApp, RCS, and Voice traffic share one conversation thread.
+- Concurrent callbacks for the same conversation (Twilio fans them out in parallel) are handled atomically: PARTICIPANT_ADDED unions into the row's `participantAddresses`, conversation events overwrite with Twilio's authoritative participant list (re-fetched if the body's list is empty).
+- ⚠️ **Voice double-billing warning** — Orchestrator passive VOICE capture rules use Real-Time Transcription. If you also use ConversationRelay or Transcription TwiML on the same numbers, you'll be charged for STT twice. Configure VOICE capture rules carefully or omit them.
+
 ### Sync architecture (two services)
 
 The dashboard uses **two separate Sync services** — a hard split between public messaging activity and private credentials.
 
 | Service | Browser grant | Contents |
 |---|---|---|
-| Public (`SYNC_SERVICE_SID`) | yes (via `/sync-token`) | `messages`, `events:*`, `senders`, `approved_to`, `approved_senders` |
+| Public (`SYNC_SERVICE_SID`) | yes (via `/sync-token`) | `messages`, `events:*`, `senders`, `approved_to`, `approved_senders`, `phone_to_conversations` |
 | Private (`SYNC_PRIVATE_SERVICE_SID`) | **never** | `approved_admins` (bcrypt hashes), `pending_verifications` |
 
 This means an open-internet `/sync-token` call only ever yields a token for the public service — there's no credential data on the other end. Provision/migrate with:

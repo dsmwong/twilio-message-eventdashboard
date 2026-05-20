@@ -66,23 +66,49 @@ async function recordEvent(context, { messageSid, messageMeta, event }) {
   const svc = syncService(context);
   const { listName } = await ensureContainers(context, messageSid);
 
-  // Upsert map item
+  // Upsert map item. Handle the race where two concurrent callbacks both see
+  // a 404 fetch and both try to create — the loser gets 409, retry as update.
+  // Array-valued fields named in `arrayUnion` are merged set-style (existing
+  // ∪ new) so concurrent appends don't clobber each other.
   if (messageMeta) {
-    try {
-      const existing = await svc.syncMaps(MESSAGES_MAP).syncMapItems(messageSid).fetch();
-      const merged = { ...existing.data, ...messageMeta };
-      await svc
-        .syncMaps(MESSAGES_MAP)
-        .syncMapItems(messageSid)
-        .update({ data: merged });
-    } catch (err) {
-      if (err.status !== 404) throw err;
-      await svc
-        .syncMaps(MESSAGES_MAP)
-        .syncMapItems.create({
-          key: messageSid,
-          data: { createdAt: new Date().toISOString(), ...messageMeta },
-        });
+    const arrayUnionFields = Array.isArray(messageMeta.__arrayUnion)
+      ? messageMeta.__arrayUnion
+      : [];
+    const cleanMeta = { ...messageMeta };
+    delete cleanMeta.__arrayUnion;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const existing = await svc.syncMaps(MESSAGES_MAP).syncMapItems(messageSid).fetch();
+        const merged = { ...existing.data, ...cleanMeta };
+        for (const field of arrayUnionFields) {
+          const prev = Array.isArray(existing.data?.[field]) ? existing.data[field] : [];
+          const incoming = Array.isArray(cleanMeta[field]) ? cleanMeta[field] : [];
+          merged[field] = Array.from(new Set([...prev, ...incoming]));
+        }
+        await svc
+          .syncMaps(MESSAGES_MAP)
+          .syncMapItems(messageSid)
+          .update({ data: merged });
+        break;
+      } catch (err) {
+        if (err.status === 404) {
+          try {
+            await svc
+              .syncMaps(MESSAGES_MAP)
+              .syncMapItems.create({
+                key: messageSid,
+                data: { createdAt: new Date().toISOString(), ...cleanMeta },
+              });
+            break;
+          } catch (createErr) {
+            if (createErr.status === 409 && attempt < 4) continue;
+            throw createErr;
+          }
+        }
+        // Optimistic-concurrency conflict on update → re-fetch and retry.
+        if ((err.status === 409 || err.status === 412) && attempt < 4) continue;
+        throw err;
+      }
     }
   }
 
@@ -94,6 +120,7 @@ const APPROVED_TO_DOC = "approved_to";
 const APPROVED_SENDERS_DOC = "approved_senders";
 const ADMINS_DOC = "approved_admins";
 const PENDING_VERIFICATIONS_MAP = "pending_verifications";
+const PHONE_INDEX_DOC = "phone_to_conversations";
 
 const SENDER_CHANNELS = ["sms", "whatsapp", "rcs", "comms"];
 
@@ -250,6 +277,73 @@ async function removePendingVerification(context, value) {
   }
 }
 
+/**
+ * Phone → conversations index. Schema:
+ *   { numbers: { "+E164": { conversationIds: string[], lastActivityAt: ISO } } }
+ *
+ * Updated by orchestrator-callback.js as new conversations arrive. Browser
+ * subscribes to it directly via Sync to render the Phones tab.
+ */
+async function loadPhoneIndex(context) {
+  const svc = syncService(context);
+  try {
+    const doc = await svc.documents(PHONE_INDEX_DOC).fetch();
+    const numbers = doc.data && typeof doc.data.numbers === "object" ? doc.data.numbers : {};
+    return numbers;
+  } catch (err) {
+    if (err.status === 404) return {};
+    throw err;
+  }
+}
+
+/**
+ * Append (idempotently — set semantics on conversationIds) a conversation to
+ * the phone's entry in the index, updating lastActivityAt. Creates the doc on
+ * first call.
+ */
+async function appendConversationToPhone(context, phone, conversationId, lastActivityAt) {
+  if (!phone || !conversationId) return;
+  const svc = syncService(context);
+  // Retry loop handles two concurrent callbacks racing on the same Document.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    let numbers = {};
+    try {
+      const existing = await svc.documents(PHONE_INDEX_DOC).fetch();
+      if (existing.data && typeof existing.data.numbers === "object") {
+        numbers = existing.data.numbers;
+      }
+    } catch (err) {
+      if (err.status !== 404) throw err;
+    }
+    const cur = numbers[phone] || { conversationIds: [], lastActivityAt: null };
+    const set = new Set(cur.conversationIds || []);
+    set.add(conversationId);
+    numbers[phone] = {
+      conversationIds: Array.from(set),
+      lastActivityAt: lastActivityAt || cur.lastActivityAt || new Date().toISOString(),
+    };
+    const data = { numbers };
+    try {
+      await svc.documents(PHONE_INDEX_DOC).update({ data });
+      return;
+    } catch (err) {
+      if (err.status === 404) {
+        try {
+          await svc.documents.create({ uniqueName: PHONE_INDEX_DOC, data });
+          return;
+        } catch (createErr) {
+          // 409 = another caller created it concurrently; re-fetch + retry.
+          if (createErr.status === 409 && attempt < 4) continue;
+          throw createErr;
+        }
+      }
+      // 409/412 on update → optimistic-concurrency conflict; re-fetch + retry.
+      if ((err.status === 409 || err.status === 412) && attempt < 4) continue;
+      throw err;
+    }
+  }
+}
+
 module.exports = {
   recordEvent,
   MESSAGES_MAP,
@@ -257,6 +351,7 @@ module.exports = {
   APPROVED_SENDERS_DOC,
   ADMINS_DOC,
   PENDING_VERIFICATIONS_MAP,
+  PHONE_INDEX_DOC,
   SENDER_CHANNELS,
   loadApprovedTo,
   loadApprovedToList,
@@ -268,4 +363,6 @@ module.exports = {
   upsertPendingVerification,
   loadPendingVerification,
   removePendingVerification,
+  loadPhoneIndex,
+  appendConversationToPhone,
 };

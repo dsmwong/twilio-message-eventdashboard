@@ -1,8 +1,8 @@
 /** Channels the SendForm can target. */
 export type Channel = "sms" | "whatsapp" | "rcs" | "comms";
 
-/** Channel value stored on a MessageRow. Same set as the send channels. */
-export type MessageChannel = Channel;
+/** Channel value stored on a MessageRow. `conversations` is observe-only. */
+export type MessageChannel = Channel | "conversations";
 
 export interface MessageRow {
   to: string;
@@ -16,16 +16,29 @@ export interface MessageRow {
   createdAt: string;
   lastStatus?: string;
   lastStatusAt?: string;
+  /** Conversations rows only: every participant address on the conversation. */
+  participantAddresses?: string[];
+  /** Conversations rows only: the orchestrator-issued conversation id (same as the row key). */
+  conversationId?: string;
 }
 
 export interface EventRow {
-  source: "status-callback" | "event-stream";
+  source: "status-callback" | "event-stream" | "orchestrator";
   eventType: string;
   timestamp: string;
   receivedAt: string;
   payload: Record<string, unknown>;
   /** Event Streams only: the full CloudEvents envelope as received. */
   envelope?: Record<string, unknown>;
+}
+
+/** Phone-to-conversations index, mirrored from the public Sync Document. */
+export interface PhoneIndexEntry {
+  conversationIds: string[];
+  lastActivityAt: string | null;
+}
+export interface PhoneIndex {
+  numbers: Record<string, PhoneIndexEntry>;
 }
 
 export interface TemplateSummary {

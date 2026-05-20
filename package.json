@@ -15,6 +15,7 @@
     "backfill:optout": "node scripts/backfill-optout.mjs",
     "admin:bootstrap": "node scripts/admin-bootstrap.mjs",
     "verify:bootstrap": "node scripts/verify-bootstrap.mjs",
+    "conversations:bootstrap": "node scripts/conversations-bootstrap.mjs",
     "sync:split": "node scripts/sync-split.mjs",
     "session:secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
   },

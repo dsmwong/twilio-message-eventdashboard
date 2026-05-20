@@ -45,6 +45,44 @@ export function Timeline({ sid }: { sid: string }) {
   const sorted = [...events].sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
   const earliest = sorted.length ? new Date(sorted[0].timestamp).getTime() : 0;
   const isCommsOperation = sid.startsWith("comms_operation_");
+  // Conversation Orchestrator ids don't have a fully-documented prefix yet, so
+  // detect via the event source as a fallback. (Empty timeline = best-guess
+  // by SID prefix; the API returns ids like `conv_…` in current testing.)
+  const isConversation =
+    !isCommsOperation &&
+    (sid.startsWith("conv_") ||
+      sid.startsWith("CO") ||
+      (sorted.length > 0 && sorted.every((e) => e.source === "orchestrator")));
+
+  if (isConversation) {
+    // Lifecycle = conversation + participant events. Communications = comm events.
+    const lifecycle = sorted.filter(
+      (e) => e.eventType?.startsWith("CONVERSATION_") || e.eventType?.startsWith("PARTICIPANT_")
+    );
+    const comms = sorted.filter((e) => e.eventType?.startsWith("COMMUNICATION_"));
+    const known = new Set([...lifecycle, ...comms]);
+    const other = sorted.filter((e) => !known.has(e));
+    return (
+      <div className="panel">
+        <div className="row" style={{ marginBottom: 12 }}>
+          <span className="badge badge-op">Lifecycle ({lifecycle.length})</span>
+          <span className="badge badge-es">Communications ({comms.length})</span>
+          {other.length > 0 && <span className="badge">Other ({other.length})</span>}
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: other.length > 0 ? "1fr 1fr 1fr" : "1fr 1fr",
+            gap: 12,
+          }}
+        >
+          <Column title="Lifecycle" kind="op" events={lifecycle} earliest={earliest} />
+          <Column title="Communications" kind="es" events={comms} earliest={earliest} />
+          {other.length > 0 && <Column title="Other" kind="op" events={other} earliest={earliest} />}
+        </div>
+      </div>
+    );
+  }
 
   if (isCommsOperation) {
     const op = sorted.filter((e) => e.eventType?.startsWith("com.twilio.comms-api.operation"));
@@ -136,7 +174,16 @@ function Column({
                 {new Date(e.timestamp).toISOString()} (+{delta}ms)
               </div>
               <PayloadTable payload={e.payload} />
-              {e.source === "event-stream" && e.envelope && <EnvelopeJson envelope={e.envelope} />}
+              {e.envelope && (
+                <EnvelopeJson
+                  envelope={e.envelope}
+                  label={
+                    e.source === "orchestrator"
+                      ? "Orchestrator callback (full JSON)"
+                      : "CloudEvent envelope (full JSON)"
+                  }
+                />
+              )}
             </li>
           );
         })}
@@ -198,7 +245,13 @@ function PayloadTable({ payload }: { payload: Record<string, unknown> }) {
   );
 }
 
-function EnvelopeJson({ envelope }: { envelope: Record<string, unknown> }) {
+function EnvelopeJson({
+  envelope,
+  label = "CloudEvent envelope (full JSON)",
+}: {
+  envelope: Record<string, unknown>;
+  label?: string;
+}) {
   const json = JSON.stringify(envelope, null, 2);
   const copy = () => {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
@@ -208,7 +261,7 @@ function EnvelopeJson({ envelope }: { envelope: Record<string, unknown> }) {
   return (
     <details style={{ marginTop: 6 }}>
       <summary className="muted" style={{ fontSize: 12, cursor: "pointer" }}>
-        CloudEvent envelope (full JSON)
+        {label}
       </summary>
       <div style={{ position: "relative" }}>
         <button

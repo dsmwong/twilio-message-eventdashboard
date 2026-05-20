@@ -71,7 +71,9 @@ export function MessageList() {
   }, []);
 
   if (err) return <p style={{ color: "tomato" }}>Error: {err}</p>;
-  if (rows.length === 0) return <p className="muted">No messages yet. Send one above.</p>;
+  // Conversations rows are surfaced on the Conversations tab, not here.
+  const visible = rows.filter((r) => r.channel !== "conversations");
+  if (visible.length === 0) return <p className="muted">No messages yet. Send one above.</p>;
 
   return (
     <table className="msg-table">
@@ -88,7 +90,7 @@ export function MessageList() {
         </tr>
       </thead>
       <tbody>
-        {rows.map((r) => (
+        {visible.map((r) => (
           <tr key={r.sid}>
             <td>
               <Link href={`/m/index.html?sid=${encodeURIComponent(r.sid)}`}>{r.sid}</Link>

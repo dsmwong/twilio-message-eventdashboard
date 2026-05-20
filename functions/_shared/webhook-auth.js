@@ -67,4 +67,45 @@ function requireTwilioSignature(context, event, path) {
   }
 }
 
-module.exports = { requireTwilioSignature, urlFor };
+/**
+ * JSON variant of requireTwilioSignature. Twilio signs JSON-bodied webhooks
+ * with `validateRequestWithBody(authToken, signature, url, rawBody)` — different
+ * from the form-encoded scheme above. Pass the raw JSON string (NOT the parsed
+ * object) so the digest matches.
+ *
+ * Throws Error with `.status = 403` if the signature is missing or invalid.
+ */
+function requireTwilioSignatureJson(context, event, path, rawBody) {
+  if (context.SKIP_TWILIO_SIGNATURE === "true") return;
+
+  const authToken = context.AUTH_TOKEN;
+  if (!authToken) {
+    const err = new Error("AUTH_TOKEN not set; cannot validate signature");
+    err.status = 503;
+    throw err;
+  }
+
+  const url = urlFor(context, path);
+  if (!url) {
+    const err = new Error("cannot resolve public URL for signature check");
+    err.status = 503;
+    throw err;
+  }
+
+  const headers = event?.request?.headers || {};
+  const signature = headers["x-twilio-signature"] || headers["X-Twilio-Signature"] || "";
+  if (!signature) {
+    const err = new Error("missing X-Twilio-Signature header");
+    err.status = 403;
+    throw err;
+  }
+
+  const ok = Twilio.validateRequestWithBody(authToken, signature, url, rawBody || "{}");
+  if (!ok) {
+    const err = new Error("invalid Twilio signature");
+    err.status = 403;
+    throw err;
+  }
+}
+
+module.exports = { requireTwilioSignature, requireTwilioSignatureJson, urlFor };

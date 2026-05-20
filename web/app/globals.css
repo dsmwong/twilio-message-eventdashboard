@@ -148,6 +148,52 @@ button:disabled {
   border: 1px solid #25d366;
 }
 
+.badge-status-active {
+  background: rgba(67, 197, 158, 0.18);
+  color: var(--sc);
+  border: 1px solid var(--sc);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
+.badge-status-inactive {
+  background: rgba(255, 159, 67, 0.18);
+  color: var(--es);
+  border: 1px solid var(--es);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
+.badge-status-closed {
+  background: rgba(154, 160, 195, 0.15);
+  color: var(--muted);
+  border: 1px solid var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+}
+
+/* Conversations table — 4 columns plus actions */
+.conv-table {
+  table-layout: fixed;
+}
+.conv-table th:nth-child(1),
+.conv-table td:nth-child(1) { width: 28%; }
+.conv-table th:nth-child(2),
+.conv-table td:nth-child(2) { width: 90px; }
+.conv-table th:nth-child(3),
+.conv-table td:nth-child(3) { width: 32%; }
+.conv-table th:nth-child(4),
+.conv-table td:nth-child(4) { width: 150px; white-space: nowrap; }
+.conv-table th:nth-child(5),
+.conv-table td:nth-child(5) { width: 170px; white-space: nowrap; text-align: right; }
+
+.pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
 .badge-op {
   background: rgba(124, 140, 255, 0.15);
   color: var(--op);
