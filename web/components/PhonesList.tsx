@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { getSyncClient } from "../lib/sync";
 import type { PhoneIndex, PhoneIndexEntry } from "../lib/types";
+import { ViewResourceButton } from "./ViewResourceButton";
 
 type Row = PhoneIndexEntry & { value: string };
 
@@ -90,6 +91,7 @@ export function PhonesList() {
                     <ul style={{ margin: 0, padding: "8px 16px", listStyle: "none" }}>
                       {r.conversationIds.map((id) => (
                         <li key={id} style={{ padding: "4px 0" }}>
+                          <ViewResourceButton id={id} />
                           <Link href={`/m/index.html?sid=${encodeURIComponent(id)}`}>{id}</Link>
                         </li>
                       ))}

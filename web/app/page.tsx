@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { AuthProvider, useAuth } from "../lib/auth";
+import { ResourceModalProvider } from "../lib/useResourceModal";
 import { AdminPanel } from "../components/AdminPanel";
 import { Header } from "../components/Header";
 import { HomeTabs } from "../components/HomeTabs";
@@ -27,7 +28,9 @@ function HomeBody() {
 export default function HomePage() {
   return (
     <AuthProvider>
-      <HomeBody />
+      <ResourceModalProvider>
+        <HomeBody />
+      </ResourceModalProvider>
     </AuthProvider>
   );
 }

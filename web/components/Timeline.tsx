@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { getSyncClient } from "../lib/sync";
 import type { EventRow } from "../lib/types";
+import { isResourceId } from "../lib/resourceId";
+import { useResourceModal } from "../lib/useResourceModal";
 
 export function Timeline({ sid }: { sid: string }) {
   const [events, setEvents] = useState<EventRow[]>([]);
@@ -76,9 +78,9 @@ export function Timeline({ sid }: { sid: string }) {
             gap: 12,
           }}
         >
-          <Column title="Lifecycle" kind="op" events={lifecycle} earliest={earliest} />
-          <Column title="Communications" kind="es" events={comms} earliest={earliest} />
-          {other.length > 0 && <Column title="Other" kind="op" events={other} earliest={earliest} />}
+          <Column title="Lifecycle" kind="op" events={lifecycle} earliest={earliest} conversationId={sid} />
+          <Column title="Communications" kind="es" events={comms} earliest={earliest} conversationId={sid} />
+          {other.length > 0 && <Column title="Other" kind="op" events={other} earliest={earliest} conversationId={sid} />}
         </div>
       </div>
     );
@@ -143,11 +145,13 @@ function Column({
   kind,
   events,
   earliest,
+  conversationId,
 }: {
   title: string;
   kind: ColumnKind;
   events: EventRow[];
   earliest: number;
+  conversationId?: string;
 }) {
   const borderColor = KIND_VAR[kind];
   return (
@@ -173,7 +177,7 @@ function Column({
               <div className="muted" style={{ fontSize: 12 }}>
                 {new Date(e.timestamp).toISOString()} (+{delta}ms)
               </div>
-              <PayloadTable payload={e.payload} />
+              <PayloadTable payload={e.payload} conversationId={conversationId} />
               {e.envelope && (
                 <EnvelopeJson
                   envelope={e.envelope}
@@ -202,7 +206,49 @@ function formatValue(v: unknown): string {
   }
 }
 
-function PayloadTable({ payload }: { payload: Record<string, unknown> }) {
+function PayloadValueCell({
+  value,
+  conversationId,
+}: {
+  value: unknown;
+  conversationId?: string;
+}) {
+  const { open } = useResourceModal();
+  if (typeof value === "string" && isResourceId(value)) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          open(value, conversationId);
+        }}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: "var(--accent)",
+          textDecoration: "underline",
+          cursor: "pointer",
+          padding: 0,
+          font: "inherit",
+          textAlign: "left",
+        }}
+        title={`View resource JSON for ${value}`}
+      >
+        {value}
+      </button>
+    );
+  }
+  return <>{formatValue(value)}</>;
+}
+
+function PayloadTable({
+  payload,
+  conversationId,
+}: {
+  payload: Record<string, unknown>;
+  conversationId?: string;
+}) {
   const entries = Object.entries(payload ?? {}).sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) return null;
   return (
@@ -235,7 +281,7 @@ function PayloadTable({ payload }: { payload: Record<string, unknown> }) {
                   fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
                 }}
               >
-                {formatValue(v)}
+                <PayloadValueCell value={v} conversationId={conversationId} />
               </td>
             </tr>
           ))}

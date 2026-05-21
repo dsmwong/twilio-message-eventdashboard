@@ -35,6 +35,7 @@ const nextConfig = {
       { source: "/orchestrator-callback", destination: `${target}/orchestrator-callback` },
       { source: "/phones-list", destination: `${target}/phones-list` },
       { source: "/conversation-close", destination: `${target}/conversation-close` },
+      { source: "/resource-fetch", destination: `${target}/resource-fetch` },
     ];
   },
 };

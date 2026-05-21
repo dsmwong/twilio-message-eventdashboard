@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { getSyncClient } from "../lib/sync";
 import type { MessageRow } from "../lib/types";
+import { ViewResourceButton } from "./ViewResourceButton";
 
 type Row = MessageRow & { sid: string };
 
@@ -134,6 +135,7 @@ export function ConversationList() {
             return (
               <tr key={r.sid}>
                 <td style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                  <ViewResourceButton id={r.sid} />
                   <Link href={`/m/index.html?sid=${encodeURIComponent(r.sid)}`}>{r.sid}</Link>
                 </td>
                 <td>

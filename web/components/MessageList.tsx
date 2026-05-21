@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { getSyncClient } from "../lib/sync";
 import type { MessageRow } from "../lib/types";
+import { ViewResourceButton } from "./ViewResourceButton";
+import { isResourceId } from "../lib/resourceId";
 
 type Row = MessageRow & { sid: string };
 
@@ -93,6 +95,7 @@ export function MessageList() {
         {visible.map((r) => (
           <tr key={r.sid}>
             <td>
+              {isResourceId(r.sid) && <ViewResourceButton id={r.sid} />}
               <Link href={`/m/index.html?sid=${encodeURIComponent(r.sid)}`}>{r.sid}</Link>
             </td>
             <td>

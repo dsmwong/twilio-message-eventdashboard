@@ -116,7 +116,105 @@ async function listCommunications(context, conversationId) {
   return all;
 }
 
+/**
+ * Fetch a Participant by its standalone id. Tries `/v2/Participants/{id}`
+ * first; if Twilio returns 404, falls back to scanning the parent conversation
+ * (where participant ids are also surfaced inside `data.participants`).
+ *
+ * Caller may optionally pass `conversationId` to skip the standalone attempt.
+ */
+async function getParticipant(context, participantId, conversationId) {
+  const accountSid = context.ACCOUNT_SID;
+  const authToken = context.AUTH_TOKEN;
+  if (!accountSid || !authToken) {
+    throw Object.assign(new Error("ACCOUNT_SID/AUTH_TOKEN not available"), { status: 500 });
+  }
+  if (!conversationId) {
+    const result = await request(
+      "GET",
+      accountSid,
+      authToken,
+      `/v2/Participants/${encodeURIComponent(participantId)}`
+    );
+    if (result.status === 200) return result.body;
+    if (result.status !== 404) {
+      const err = new Error(`getParticipant ${result.status}`);
+      err.status = result.status;
+      err.upstream = result.body;
+      throw err;
+    }
+  }
+  // Fallback: pull parent conversation, find the participant by id.
+  if (conversationId) {
+    const conv = await getConversation(context, conversationId);
+    const match = (conv?.participants || []).find((p) => p?.id === participantId);
+    if (match) return match;
+  }
+  const err = new Error("participant not found");
+  err.status = 404;
+  throw err;
+}
+
+/**
+ * Fetch a Communication by its standalone id. Tries `/v2/Communications/{id}`
+ * first; if Twilio returns 404 and the caller knows the parent conversation,
+ * falls back to scanning the conversation's communications list.
+ */
+async function getCommunication(context, communicationId, conversationId) {
+  const accountSid = context.ACCOUNT_SID;
+  const authToken = context.AUTH_TOKEN;
+  if (!accountSid || !authToken) {
+    throw Object.assign(new Error("ACCOUNT_SID/AUTH_TOKEN not available"), { status: 500 });
+  }
+  const result = await request(
+    "GET",
+    accountSid,
+    authToken,
+    `/v2/Communications/${encodeURIComponent(communicationId)}`
+  );
+  if (result.status === 200) return result.body;
+  if (result.status !== 404) {
+    const err = new Error(`getCommunication ${result.status}`);
+    err.status = result.status;
+    err.upstream = result.body;
+    throw err;
+  }
+  if (conversationId) {
+    const items = await listCommunications(context, conversationId);
+    const match = items.find((c) => c?.id === communicationId);
+    if (match) return match;
+  }
+  const err = new Error("communication not found");
+  err.status = 404;
+  throw err;
+}
+
+/** Fetch a Configuration (the orchestrator-config a conversation is pinned to). */
+async function getConfiguration(context, configurationId) {
+  const accountSid = context.ACCOUNT_SID;
+  const authToken = context.AUTH_TOKEN;
+  if (!accountSid || !authToken) {
+    throw Object.assign(new Error("ACCOUNT_SID/AUTH_TOKEN not available"), { status: 500 });
+  }
+  const result = await request(
+    "GET",
+    accountSid,
+    authToken,
+    `/v2/ControlPlane/Configurations/${encodeURIComponent(configurationId)}`
+  );
+  if (result.status !== 200) {
+    const err = new Error(`getConfiguration ${result.status}`);
+    err.status = result.status;
+    err.upstream = result.body;
+    throw err;
+  }
+  return result.body;
+}
+
 module.exports = {
   getConversation,
   listCommunications,
+  getParticipant,
+  getCommunication,
+  getConfiguration,
 };

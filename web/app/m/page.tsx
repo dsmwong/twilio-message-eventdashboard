@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Timeline } from "../../components/Timeline";
+import { ResourceModalProvider } from "../../lib/useResourceModal";
 
 function MessageDetail() {
   const params = useSearchParams();
@@ -22,7 +23,9 @@ function MessageDetail() {
 export default function MessageDetailPage() {
   return (
     <Suspense fallback={<div className="container">Loading…</div>}>
-      <MessageDetail />
+      <ResourceModalProvider>
+        <MessageDetail />
+      </ResourceModalProvider>
     </Suspense>
   );
 }

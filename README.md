@@ -85,6 +85,7 @@ For local development, see [Develop](#develop) below.
 |---|---|
 | `POST /sync-token` | Mints a Sync access token. Viewer scope (30m) by default; admin scope (1h) when the admin cookie is present. Both grants reach the **public** Sync service only. |
 | `GET /phones-list` | Non-Sync REST view of the `phone_to_conversations` document (browser primarily subscribes live). |
+| `GET /resource-fetch?id=…` | On-demand fetch of any recognised Twilio resource id (`SM*`/`MM*`, `MG*`, `conv_conversation_*`, `conv_participant_*`, `conv_communication_*`, `conv_configuration_*`, `comms_operation_*`, `mem_profile_*`). Returns `{kind, id, resource}`. Powers the dashboard's "View resource" modal. Open (no auth) — same data the timeline already shows. |
 
 ### Admin & control endpoints
 | Endpoint | Description |

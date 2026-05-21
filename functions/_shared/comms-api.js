@@ -112,10 +112,40 @@ function createOperation(context, payload) {
   return request("POST", context.ACCOUNT_SID, context.AUTH_TOKEN, MESSAGES_PATH, payload);
 }
 
+/**
+ * Fetch a Comms API operation by id. The bulk-send 202 response includes an
+ * `operationLocation` URL like `https://comms.twilio.com/v1/Messages/Operations/{id}`,
+ * so that's the primary path we try; if Twilio surfaces the resource at a
+ * different path we fall back to `/v1/Operations/{id}`.
+ */
+async function getOperation(context, operationId) {
+  const accountSid = context.ACCOUNT_SID;
+  const authToken = context.AUTH_TOKEN;
+  if (!accountSid || !authToken) {
+    throw Object.assign(new Error("ACCOUNT_SID/AUTH_TOKEN not available"), { status: 500 });
+  }
+  const paths = [
+    `/v1/Messages/Operations/${encodeURIComponent(operationId)}`,
+    `/v1/Operations/${encodeURIComponent(operationId)}`,
+  ];
+  let last;
+  for (const path of paths) {
+    const result = await request("GET", accountSid, authToken, path);
+    if (result.status === 200) return result.body;
+    last = result;
+    if (result.status !== 404) break;
+  }
+  const err = new Error(`getOperation ${last.status}`);
+  err.status = last.status;
+  err.upstream = last.body;
+  throw err;
+}
+
 module.exports = {
   SUPPORTED_FROM_CHANNELS,
   listSenders,
   listAllActivatedSenders,
   indexByAddress,
   createOperation,
+  getOperation,
 };

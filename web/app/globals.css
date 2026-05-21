@@ -176,12 +176,21 @@ button:disabled {
 .conv-table {
   table-layout: fixed;
 }
+/* Conversation ID — fits conv_conversation_xxxxxxxxxxxxxxxxxxxxxxxxxx (43 chars)
+   plus the {+} button on one line. */
 .conv-table th:nth-child(1),
-.conv-table td:nth-child(1) { width: 28%; }
+.conv-table td:nth-child(1) {
+  width: 360px;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .conv-table th:nth-child(2),
 .conv-table td:nth-child(2) { width: 90px; }
 .conv-table th:nth-child(3),
-.conv-table td:nth-child(3) { width: 32%; }
+.conv-table td:nth-child(3) { }
 .conv-table th:nth-child(4),
 .conv-table td:nth-child(4) { width: 150px; white-space: nowrap; }
 .conv-table th:nth-child(5),
@@ -228,16 +237,25 @@ th {
   table-layout: fixed;
 }
 
+/* Message SID — wide enough for the longest id we render
+   (comms_operation_xxxxxxxxxxxxxxxxxxxxxxxxxx = 43 chars + the {+} button). */
 .msg-table th:nth-child(1),
-.msg-table td:nth-child(1) { width: 22%; }
+.msg-table td:nth-child(1) {
+  width: 360px;
+  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .msg-table th:nth-child(2),
 .msg-table td:nth-child(2) { width: 44px; }
 .msg-table th:nth-child(3),
 .msg-table td:nth-child(3) { width: 72px; }
 .msg-table th:nth-child(4),
-.msg-table td:nth-child(4) { width: 18%; }
+.msg-table td:nth-child(4) { width: 14%; }
 .msg-table th:nth-child(5),
-.msg-table td:nth-child(5) { width: 22%; }
+.msg-table td:nth-child(5) { width: 14%; }
 .msg-table th:nth-child(6),
 .msg-table td:nth-child(6) { width: 72px; }
 .msg-table th:nth-child(7),
